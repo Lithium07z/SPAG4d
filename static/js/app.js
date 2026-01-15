@@ -37,6 +37,14 @@ class SPAG4DApp {
         this.downloadPlyBtn.addEventListener('click', () => this.downloadFile('ply'));
         this.downloadSplatBtn.addEventListener('click', () => this.downloadFile('splat'));
 
+        // Reset View Button
+        const resetBtn = document.getElementById('reset-view-btn');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => {
+                if (this.splatViewer) this.splatViewer.resetView();
+            });
+        }
+
         // Initialize viewers
         this.initViewers();
 

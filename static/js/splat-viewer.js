@@ -8,10 +8,11 @@ class SplatViewer {
         this.gl = null;
         this.data = null;
 
-        // Camera state
-        this.cameraDistance = 5;
-        this.rotationX = 0;
-        this.rotationY = 0;
+        // Camera state (WASD Fly Camera)
+        this.position = { x: 0, y: 0, z: 0 };
+        this.rotation = { yaw: 0, pitch: 0 };
+        this.keys = { w: false, a: false, s: false, d: false, q: false, e: false };
+        this.speed = 0.05;
         this.isDragging = false;
         this.lastMouseX = 0;
         this.lastMouseY = 0;
@@ -40,9 +41,13 @@ class SplatViewer {
 
         // Event listeners
         this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
-        this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        this.canvas.addEventListener('mouseup', () => this.onMouseUp());
+        document.addEventListener('mousemove', (e) => this.onMouseMove(e));
+        document.addEventListener('mouseup', () => this.onMouseUp());
         this.canvas.addEventListener('wheel', (e) => this.onWheel(e));
+
+        // Keyboard controls
+        window.addEventListener('keydown', (e) => this.onKeyDown(e));
+        window.addEventListener('keyup', (e) => this.onKeyUp(e));
 
         window.addEventListener('resize', () => this.onResize());
 
@@ -270,8 +275,11 @@ class SplatViewer {
 
         gl.useProgram(this.program);
 
-        // Model-view matrix (orbit camera)
-        const modelView = this.createModelViewMatrix();
+        // Update camera (WASD)
+        this.updateCamera();
+
+        // Model-view matrix (fly camera)
+        const modelView = this.createViewMatrix();
         gl.uniformMatrix4fv(this.uniformLocations.modelViewMatrix, false, modelView);
 
         // Projection matrix
@@ -303,23 +311,85 @@ class SplatViewer {
         requestAnimationFrame(() => this.render());
     }
 
-    createModelViewMatrix() {
-        // Simple orbit camera
-        const cosX = Math.cos(this.rotationX);
-        const sinX = Math.sin(this.rotationX);
-        const cosY = Math.cos(this.rotationY);
-        const sinY = Math.sin(this.rotationY);
+    updateCamera() {
+        if (!this.keys) return;
 
-        const d = this.cameraDistance;
+        const speed = this.speed * (this.keys.shift ? 2.0 : 1.0);
+        const yaw = this.rotation.yaw;
 
-        const eye = [
-            d * cosY * sinX,
-            d * sinY,
-            d * cosY * cosX
+        // Forward/Backward (Z) - fly direction
+        // In our coordinate system, Z is backward, so -Z is forward?
+        // Let's assume standard OpenGL: -Z is forward.
+        // We move in direction of yaw.
+
+        const sinYaw = Math.sin(yaw);
+        const cosYaw = Math.cos(yaw);
+
+        if (this.keys.w) {
+            this.position.x -= sinYaw * speed;
+            this.position.z -= cosYaw * speed;
+        }
+        if (this.keys.s) {
+            this.position.x += sinYaw * speed;
+            this.position.z += cosYaw * speed;
+        }
+
+        // Left/Right (X)
+        if (this.keys.a) {
+            this.position.x -= cosYaw * speed;
+            this.position.z += sinYaw * speed;
+        }
+        if (this.keys.d) {
+            this.position.x += cosYaw * speed;
+            this.position.z -= sinYaw * speed;
+        }
+
+        // Up/Down (Y)
+        if (this.keys.e || this.keys.space) {
+            this.position.y += speed;
+        }
+        if (this.keys.q || this.keys.ctrl) {
+            this.position.y -= speed;
+        }
+    }
+
+    createViewMatrix() {
+        const pitch = this.rotation.pitch;
+        const yaw = this.rotation.yaw;
+
+        const cosPitch = Math.cos(pitch);
+        const sinPitch = Math.sin(pitch);
+        const cosYaw = Math.cos(yaw);
+        const sinYaw = Math.sin(yaw);
+
+        // Forward vector
+        // In coordinate system where Y is up:
+        // x = sin(yaw) * cos(pitch)
+        // y = sin(pitch)
+        // z = cos(yaw) * cos(pitch)
+        const forward = [
+            sinYaw * cosPitch,
+            sinPitch,
+            cosYaw * cosPitch
         ];
 
-        // Look at origin
-        return this.lookAt(eye, [0, 0, 0], [0, 1, 0]);
+        // Target: eye - forward (looking into -Z)
+        const target = [
+            this.position.x - forward[0],
+            this.position.y - forward[1],
+            this.position.z - forward[2]
+        ];
+
+        return this.lookAt(
+            [this.position.x, this.position.y, this.position.z],
+            target,
+            [0, 1, 0]
+        );
+    }
+
+    resetView() {
+        this.position = { x: 0, y: 0, z: 0 };
+        this.rotation = { yaw: 0, pitch: 0 };
     }
 
     lookAt(eye, target, up) {
@@ -369,33 +439,61 @@ class SplatViewer {
     }
 
     onMouseDown(e) {
+        // Capture pointer for smoother look
+        if (this.canvas.requestPointerLock) {
+            this.canvas.requestPointerLock();
+        }
+
         this.isDragging = true;
-        this.lastMouseX = e.clientX;
-        this.lastMouseY = e.clientY;
     }
 
     onMouseMove(e) {
-        if (!this.isDragging) return;
+        // Support both pointer lock and drag
+        if (document.pointerLockElement === this.canvas) {
+            this.rotation.yaw -= e.movementX * 0.002;
+            this.rotation.pitch -= e.movementY * 0.002;
+        } else if (this.isDragging) {
+            this.rotation.yaw -= e.movementX * 0.005;
+            this.rotation.pitch -= e.movementY * 0.005;
+        } else {
+            return;
+        }
 
-        const deltaX = e.clientX - this.lastMouseX;
-        const deltaY = e.clientY - this.lastMouseY;
-
-        this.rotationX += deltaX * 0.01;
-        this.rotationY += deltaY * 0.01;
-        this.rotationY = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, this.rotationY));
-
-        this.lastMouseX = e.clientX;
-        this.lastMouseY = e.clientY;
+        // Clamp pitch to avoid gimbal lock flip
+        const maxPitch = Math.PI / 2 - 0.01;
+        this.rotation.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.rotation.pitch));
     }
 
     onMouseUp() {
         this.isDragging = false;
+        if (document.exitPointerLock) {
+            document.exitPointerLock();
+        }
+    }
+
+    onKeyDown(e) {
+        const key = e.key.toLowerCase();
+        if (this.keys.hasOwnProperty(key)) this.keys[key] = true;
+        if (e.key === 'Shift') this.keys.shift = true;
+        if (e.key === 'Control') this.keys.ctrl = true;
+        if (e.code === 'Space') this.keys.space = true;
+
+        if (key === 'r') this.resetView(); // Hotkey reset
+    }
+
+    onKeyUp(e) {
+        const key = e.key.toLowerCase();
+        if (this.keys.hasOwnProperty(key)) this.keys[key] = false;
+        if (e.key === 'Shift') this.keys.shift = false;
+        if (e.key === 'Control') this.keys.ctrl = false;
+        if (e.code === 'Space') this.keys.space = false;
     }
 
     onWheel(e) {
         e.preventDefault();
-        this.cameraDistance *= 1 + e.deltaY * 0.001;
-        this.cameraDistance = Math.max(1, Math.min(50, this.cameraDistance));
+        // Adjust speed with scroll
+        this.speed *= (e.deltaY > 0 ? 0.9 : 1.1);
+        this.speed = Math.max(0.01, Math.min(5.0, this.speed));
     }
 
     onResize() {

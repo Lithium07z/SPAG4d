@@ -46,7 +46,8 @@
                 <div class="viewer-panel">
                     <div class="panel-header">
                         <h2>3D Gaussian Splat</h2>
-                        <span class="panel-hint">Orbit & Zoom</span>
+                        <button id="reset-view-btn" class="sm-btn" title="Reset View (R)">Reset</button>
+                        <span class="panel-hint">WASD to Move</span>
                     </div>
                     <div class="viewer-container" id="splat-viewer">
                         <div class="viewer-placeholder">
@@ -90,8 +91,8 @@
                     <div class="param-group">
                         <label for="stride">Stride</label>
                         <select id="stride">
-                            <option value="1">1 (Max)</option>
-                            <option value="2" selected>2</option>
+                            <option value="1" selected>1 (Max)</option>
+                            <option value="2">2</option>
                             <option value="4">4</option>
                             <option value="8">8 (Fast)</option>
                         </select>
