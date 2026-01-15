@@ -69,8 +69,29 @@ class DAPModel:
             )
         
         model = build_dap_model()
-        state_dict = torch.load(model_path, map_location=device, weights_only=True)
-        model.load_state_dict(state_dict)
+        
+        # Load checkpoint
+        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        
+        # Handle different checkpoint formats
+        if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        elif isinstance(checkpoint, dict) and 'model' in checkpoint:
+            state_dict = checkpoint['model']
+        else:
+            state_dict = checkpoint
+        
+        # Strip 'module.' prefix if model was saved with DataParallel
+        new_state_dict = {}
+        for key, value in state_dict.items():
+            if key.startswith('module.'):
+                new_key = key[7:]  # Remove 'module.' prefix
+            else:
+                new_key = key
+            new_state_dict[new_key] = value
+        
+        # Load with strict=False to handle any minor mismatches
+        model.load_state_dict(new_state_dict, strict=False)
         model = model.to(device)
         
         return cls(model, device)
