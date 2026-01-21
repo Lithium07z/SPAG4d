@@ -62,6 +62,7 @@ class JobInfo:
         self.total_frames = 0
         self.current_frame = 0
         self.frame_manifest: list = []
+        self.frames_dir: Optional[Path] = None
         self.output_zip_path: Optional[Path] = None
 
 
@@ -120,7 +121,8 @@ async def run_cleanup():
         if job:
             # Delete associated files
             for path in [job.input_path, job.output_ply_path, 
-                        job.output_splat_path, job.preview_splat_path]:
+                        job.output_splat_path, job.preview_splat_path,
+                        job.frames_dir, job.output_zip_path]:
                 if path and path.exists():
                     try:
                         if path.is_dir():
@@ -348,6 +350,7 @@ async def process_video_job(
             
             # 1. Extract frames
             frames_dir = TEMP_DIR / f"{job.job_id}_frames"
+            job.frames_dir = frames_dir
             frames_dir.mkdir(exist_ok=True)
             
             # Run ffmpeg to extract frames

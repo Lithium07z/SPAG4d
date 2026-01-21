@@ -21,7 +21,7 @@ DAP_CONFIG = {
     "url": "https://huggingface.co/Insta360-Research/DAP-weights/resolve/main/model.pth",
     "repo_id": "Insta360-Research/DAP-weights",
     "filename": "model.pth",
-    "sha256": None,  # Will be set after first verified download
+    "sha256": "247f33754976cae1f76cb9a3b9737f336575e8cbd121c3382ab1bff18387bc7d3",
     "size_mb": 1500,
 }
 DAP_CACHE_DIR = Path.home() / ".cache" / "spag4d"
@@ -100,7 +100,7 @@ class DAPModel:
     def _get_or_download_weights(cls) -> str:
         """Download weights with verification."""
         DAP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        cache_path = DAP_CACHE_DIR / "dap_large.pth"
+        cache_path = DAP_CACHE_DIR / "model.pth"
         
         if cache_path.exists():
             # Verify checksum if available

@@ -1,0 +1,4 @@
+Python: 3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]
+OpenCV: 4.12.0
+Scipy: 1.16.2
+SPAG4D Import Failed: [WinError 126] The specified module could not be found. Error loading "C:\Users\Cedar\AppData\Roaming\Python\Python311\site-packages\torch\lib\cudnn_adv64_9.dll" or one of its dependencies.

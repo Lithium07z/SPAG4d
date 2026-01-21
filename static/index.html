@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SPAG-4D | 360° to Gaussian Splat</title>
     <meta name="description" content="Convert 360° equirectangular panoramas to 3D Gaussian Splat files">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=2">
     <script src="js/three.min.js"></script>
 </head>
 
@@ -39,7 +39,9 @@
                                 <button id="tab-depth" class="tab-btn" disabled>Depth</button>
                             </div>
                         </div>
-                        <span class="panel-hint">Drag to rotate</span>
+                        <div class="header-controls">
+                            <button id="pano-projection-btn" class="sm-btn" title="Toggle Flat/360 View">360°</button>
+                        </div>
                     </div>
                     <div class="viewer-container" id="pano-viewer">
                         <div class="viewer-placeholder">
@@ -83,7 +85,8 @@
                         <em>Depth Range</em> (clip distant objects)
                     </li>
                     <li>Click <strong>Convert</strong> to generate the 3D Gaussian Splat</li>
-                    <li><strong>Preview</strong> the result in the 3DGS viewer (drag to rotate, scroll to zoom)</li>
+                    <li><strong>Preview</strong> the result in the 3DGS viewer (WASD + Mouse to fly, Scroll to zoom)
+                    </li>
                     <li><strong>Download</strong> as PLY (for editors) or SPLAT (for web viewers)</li>
                 </ol>
                 <div class="tip">
@@ -222,9 +225,9 @@
         </main>
     </div>
 
-    <script src="js/pano-viewer.js"></script>
-    <script src="js/splat-viewer.js"></script>
-    <script src="js/app.js"></script>
+    <script src="js/pano-viewer.js?v=2"></script>
+    <script src="js/splat-viewer.js?v=2"></script>
+    <script src="js/app.js?v=2"></script>
 </body>
 
 </html>

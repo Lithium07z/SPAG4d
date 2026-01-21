@@ -101,6 +101,22 @@ class SPAG4DApp {
         if (qualitySelect) {
             qualitySelect.addEventListener('change', () => this.handleQualityChange());
         }
+
+        // Projection toggle
+        const projBtn = document.getElementById('pano-projection-btn');
+        if (projBtn) {
+            projBtn.addEventListener('click', () => {
+                if (!this.panoViewer) return;
+
+                if (this.panoViewer.projection === 'sphere') {
+                    this.panoViewer.setProjection('flat');
+                    projBtn.textContent = 'Flat';
+                } else {
+                    this.panoViewer.setProjection('sphere');
+                    projBtn.textContent = '360°';
+                }
+            });
+        }
     }
 
     handleQualityChange() {

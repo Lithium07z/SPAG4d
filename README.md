@@ -12,7 +12,7 @@ Convert 360° equirectangular panoramas into viewable 3D Gaussian Splat files.
 - **Metric Depth Output** - Real-world scale with manual adjustment option
 - **Standard 3DGS PLY Output** - Compatible with gsplat, SuperSplat, SHARP viewers
 - **Compressed SPLAT Format** - ~8x smaller for web delivery
-- **Web UI** - Preview 360° input and 3D result
+- **Web UI** - Preview 360° input (with Flat/Sphere modes) and 3D result
 - **CLI** - Batch processing and automation
 
 ## Quick Start
@@ -24,7 +24,7 @@ cd SPAG4d
 
 # Create virtual environment
 python -m venv .venv
-.venv\Scripts\activate  # Windows
+.\.venv\Scripts\activate  # Windows
 # source .venv/bin/activate  # Linux/Mac
 
 # Install PyTorch with CUDA
@@ -32,7 +32,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 # Install SPAG-4D and DAP dependencies
 pip install -e ".[all]"
-pip install torchmetrics mmengine safetensors einops opencv-python
+pip install torchmetrics mmengine safetensors einops opencv-python scipy
 
 # Run the web UI
 .\start_spag4d.bat  # Windows
@@ -49,6 +49,9 @@ python -m spag4d.cli serve --port 7860
 ```
 
 Open http://localhost:7860 in your browser.
+
+- **Input Preview**: Toggle between 360° Sphere and Flat Equirectangular views.
+- **Splat Viewer**: Use WASD + Mouse to fly, Scroll to zoom.
 
 ### CLI
 
@@ -115,6 +118,8 @@ print(f"Generated {result.splat_count:,} Gaussians")
 - Python 3.10+
 - CUDA-capable GPU (8GB+ VRAM recommended)
 - ffmpeg (for video processing)
+- scipy (for visual odometry)
+- opencv-python (for image processing)
 
 ### DAP Dependencies
 
