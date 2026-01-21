@@ -27,13 +27,22 @@ def erp_to_sphere(u: np.ndarray, v: np.ndarray, W: int, H: int) -> np.ndarray:
         Points on unit sphere [N, 3] in Y-up coordinate system
     """
     # Convert to spherical coordinates
-    theta = (u / W) * 2 * np.pi - np.pi  # Longitude: -π to π
-    phi = (v / H) * np.pi  # Latitude: 0 to π (from top)
+    # Match spherical_grid: θ decreases from 2π to 0 as u increases from 0 to W
+    # theta = (1 - u / W) * 2 * np.pi
+    # However, for simple matching, we just need consistent relative rotation.
+    # Let's match the grid exactly: 
+    #   u=0 -> theta=2pi, u=W -> theta=0.
+    #   v=0 -> phi=0, v=H -> phi=pi.
     
-    # Convert to Cartesian (Y-up)
-    x = np.sin(phi) * np.sin(theta)
-    y = np.cos(phi)  # Y is up
-    z = np.sin(phi) * np.cos(theta)
+    # Note: adding small epsilon to W to avoid wrap-around issues if needed, strictly:
+    theta = (1.0 - u / W) * 2 * np.pi
+    phi = (v / H) * np.pi
+    
+    # Convert to Cartesian (Y-up) matching spherical_grid.py
+    # rhat = [sin(φ)cos(θ), cos(φ), -sin(φ)sin(θ)]
+    x = np.sin(phi) * np.cos(theta)
+    y = np.cos(phi)
+    z = -np.sin(phi) * np.sin(theta)
     
     return np.stack([x, y, z], axis=-1)
 

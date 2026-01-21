@@ -84,12 +84,13 @@ def create_spherical_grid(
     sin_theta = torch.sin(theta)
     cos_theta = torch.cos(theta)
     
-    # Unit direction vector r̂ = [sin(φ)cos(θ), -cos(φ), -sin(φ)sin(θ)]
-    # Note: Y is negated because ERP has top-of-image = north pole (looking down from above)
-    # but we want Y-up in world space where top-of-sphere = positive Y  
+    # Unit direction vector r̂ = [sin(φ)cos(θ), cos(φ), -sin(φ)sin(θ)]
+    # Y is up (= cos(φ)):
+    # φ=0 (north pole) -> cos(0)=1 -> +Y
+    # φ=π (south pole) -> cos(π)=-1 -> -Y
     rhat = torch.stack([
         sin_phi * cos_theta,   # X
-        -cos_phi,              # Y (up) - negated to fix upside-down
+        cos_phi,               # Y (up)
         -sin_phi * sin_theta   # Z
     ], dim=-1)
     

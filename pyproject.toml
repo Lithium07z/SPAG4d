@@ -30,6 +30,8 @@ dependencies = [
     "plyfile>=1.0",
     "tqdm>=4.65",
     "click>=8.0",
+    "scipy>=1.10",
+    "opencv-python>=4.8",
 ]
 
 [project.optional-dependencies]

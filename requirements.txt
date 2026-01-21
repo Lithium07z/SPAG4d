@@ -6,6 +6,7 @@ Pillow>=10.0.0
 plyfile>=1.0.0
 tqdm>=4.65.0
 click>=8.0.0
+scipy>=1.10.0
 
 # Server
 fastapi>=0.100.0

@@ -24,7 +24,9 @@ from spag4d import SPAG4D, ConversionResult
 # ─────────────────────────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────────────────────────
-TEMP_DIR = Path("./temp_spag4d")
+import tempfile
+# Use system temp dir to avoid permission issues/clutter
+TEMP_DIR = Path(tempfile.gettempdir()) / "spag4d"
 JOB_TTL_SECONDS = 30 * 60  # 30 minutes
 MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
 GPU_SEMAPHORE_LIMIT = 1  # Only 1 concurrent GPU job
@@ -121,15 +123,20 @@ async def run_cleanup():
                         job.output_splat_path, job.preview_splat_path]:
                 if path and path.exists():
                     try:
-                        path.unlink()
+                        if path.is_dir():
+                            shutil.rmtree(path, ignore_errors=True)
+                        else:
+                            path.unlink()
                     except Exception:
                         pass
     
     # Also clean orphaned files in temp dir
-    for f in TEMP_DIR.glob("*"):
         try:
             if now - f.stat().st_mtime > JOB_TTL_SECONDS:
-                f.unlink()
+                if f.is_dir():
+                    shutil.rmtree(f, ignore_errors=True)
+                else:
+                    f.unlink()
         except Exception:
             pass
 
@@ -225,6 +232,7 @@ async def convert_video(
     
     asyncio.create_task(process_video_job(
         job, fps, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
+        80.0, # Default sky threshold
         start_time, duration, temporal_alpha, stabilize_video
     ))
     
@@ -311,6 +319,7 @@ async def process_video_job(
     global_scale: float,
     depth_min: float,
     depth_max: float,
+    sky_threshold: float = 80.0,
     start_time: float = 0.0,
     duration: Optional[float] = None,
     temporal_alpha: float = 0.7,  # EMA smoothing factor (0 = off, 1 = max smooth)
@@ -427,8 +436,16 @@ async def process_video_job(
                 # Apply global scale
                 depth = depth * global_scale
                 
-                # Skip DAP mask for now - let gaussian_converter handle depth range filtering
-                validity_mask = None
+                # Use mask from DAP + Sky threshold
+                validity_mask = mask # From batch prediction
+                
+                # Apply sky threshold
+                if sky_threshold > 0:
+                    sky_mask = (depth <= sky_threshold).float()
+                    if validity_mask is not None:
+                        validity_mask = validity_mask * sky_mask
+                    else:
+                        validity_mask = sky_mask
                 
                 # Load image for conversion
                 img = Image.open(frame_path).convert('RGB')
