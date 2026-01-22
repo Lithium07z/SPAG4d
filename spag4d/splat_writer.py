@@ -41,13 +41,7 @@ def save_splat(gaussians: dict, path: str) -> None:
     if N == 0:
         raise ValueError("No valid Gaussians to save")
     
-    # ─────────────────────────────────────────────────────────────────
-    # Coordinate transform (same as PLY)
-    # ─────────────────────────────────────────────────────────────────
-    means = means.copy()
-    means[:, 1] *= -1
-    means[:, 2] *= -1
-    quats = _quat_multiply(np.array([1., 0., 0., 0.]), quats)
+    # Note: No coordinate transform - matches PLY output frame (Y-up internal)
     
     # ─────────────────────────────────────────────────────────────────
     # Quantize

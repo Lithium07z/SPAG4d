@@ -62,3 +62,22 @@ test_outputs/
 
 # Design Docs
 design_doc.md
+SHARP_INTEGRATION_DESIGN.md
+
+# Dependencies (Local)
+ml-sharp/
+
+# Debug & Scratch Scripts
+debug_*.py
+debug_*.txt
+test_debug.py
+test_exports.py
+test_output.zip
+
+# Generated Test Outputs
+TestImage/video_test_output/
+TestImage/frame_*.ply
+
+# Review Docs
+SHARP_IMPLEMENTATION_REVIEW.md
+SHARP_INTEGRATION_REVIEW.md

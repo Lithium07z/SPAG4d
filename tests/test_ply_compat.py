@@ -99,6 +99,27 @@ class TestSplatFormat:
         # Values approximately preserved (with quantization loss)
         # Can't expect exact match due to float16/uint8 quantization
     
+    def test_ply_splat_same_coordinates(self, tmp_path):
+        """PLY and SPLAT should output same coordinate frame."""
+        gaussians = _create_test_gaussians(100)
+        
+        ply_path = tmp_path / "test.ply"
+        splat_path = tmp_path / "test.splat"
+        
+        save_ply_gsplat(gaussians, str(ply_path))
+        save_splat(gaussians, str(splat_path))
+        
+        loaded_ply = load_ply_gaussians(str(ply_path))
+        loaded_splat = load_splat(str(splat_path))
+        
+        # Positions should match (allowing for float16 quantization in SPLAT)
+        np.testing.assert_allclose(
+            loaded_ply['means'].numpy(),
+            loaded_splat['means'].numpy(),
+            rtol=1e-2, atol=1e-2,
+            err_msg="PLY and SPLAT coordinates should match"
+        )
+    
     def test_splat_file_size(self, tmp_path):
         """SPLAT should be smaller than PLY."""
         gaussians = _create_test_gaussians(1000)

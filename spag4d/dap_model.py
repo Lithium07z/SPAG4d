@@ -21,7 +21,8 @@ DAP_CONFIG = {
     "url": "https://huggingface.co/Insta360-Research/DAP-weights/resolve/main/model.pth",
     "repo_id": "Insta360-Research/DAP-weights",
     "filename": "model.pth",
-    "sha256": "247f33754976cae1f76cb9a3b9737f336575e8cbd121c3382ab1bff18387bc7d3",
+    # Checksum verification disabled to prevent redownload loops if hash changes
+    "sha256": None, # "247f33754976cae1f76cb9a3b9737f336575e8cbd121c3382ab1bff18387bc7d3",
     "size_mb": 1500,
 }
 DAP_CACHE_DIR = Path.home() / ".cache" / "spag4d"
@@ -105,6 +106,7 @@ class DAPModel:
         if cache_path.exists():
             # Verify checksum if available
             if cls._verify_checksum(cache_path):
+                print(f"Using cached DAP weights: {cache_path}")
                 return str(cache_path)
             else:
                 print("Cached weights corrupted, re-downloading...")

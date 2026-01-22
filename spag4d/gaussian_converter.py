@@ -182,3 +182,144 @@ def filter_sky(
         'colors': gaussians['colors'][valid],
         'opacities': gaussians['opacities'][valid]
     }
+
+
+def equirect_to_gaussians_refined(
+    image: torch.Tensor,
+    depth: torch.Tensor,
+    grid: SphericalGrid,
+    refined_attrs: Optional[object] = None,  # Avoid circular import, pass RefinedAttributes object
+    scale_factor: float = 1.5,
+    thickness_ratio: float = 0.1,
+    depth_min: float = 0.1,
+    depth_max: float = 100.0,
+    pole_rows: int = 3,
+    default_opacity: float = 0.95,
+    validity_mask: Optional[torch.Tensor] = None,
+    scale_blend: float = 0.5,
+    opacity_blend: float = 1.0,
+) -> dict:
+    """
+    Convert ERP panorama to Gaussians with optional SHARP refinements.
+
+    When refined_attrs is provided:
+    - Opacities are taken from SHARP (blended by opacity_blend)
+    - Scales are blended between geometric and SHARP (by scale_blend)
+    - Colors can optionally be refined
+
+    Positions and rotations always come from geometric computation
+    to maintain 360° consistency.
+    """
+    import torch.nn.functional as F
+
+    # 1. Compute base Gaussians
+    base_gaussians = equirect_to_gaussians(
+        image, depth, grid,
+        scale_factor, thickness_ratio,
+        depth_min, depth_max, pole_rows,
+        default_opacity, validity_mask
+    )
+
+    if refined_attrs is None:
+        return base_gaussians
+
+    # 2. Apply SHARP refinements
+    # Note: Attributes in base_gaussians are flat [N, ...]
+    # We need to sample refined maps at the valid positions
+
+    H_grid, W_grid = grid.theta.shape
+    
+    # Re-compute validity mask to find indices (must match equirect_to_gaussians exactly)
+    # Ideally equirect_to_gaussians should return indices, but we recompute for now.
+    
+    # IMPORTANT: Downsample depth to match grid resolution BEFORE computing mask
+    # This matches equirect_to_gaussians behavior: "depth = depth[stride//2::stride, stride//2::stride]"
+    stride = grid.stride
+    depth_downsampled = depth
+    if depth.shape[0] != H_grid or depth.shape[1] != W_grid:
+        depth_downsampled = depth[stride//2::stride, stride//2::stride]
+        
+    valid_mask = (depth_downsampled > depth_min) & (depth_downsampled < depth_max)
+    
+    if validity_mask is not None:
+        # Downsample passed validity mask too
+        mask_downsampled = validity_mask
+        if validity_mask.shape[0] != H_grid or validity_mask.shape[1] != W_grid:
+            mask_downsampled = validity_mask[stride//2::stride, stride//2::stride]
+
+        if mask_downsampled.dtype == torch.float32 or mask_downsampled.dtype == torch.float16:
+            valid_mask = valid_mask & (mask_downsampled > 0.5)
+        else:
+            valid_mask = valid_mask & mask_downsampled.bool()
+    
+    if pole_rows > 0:
+        pole_mask = torch.ones_like(valid_mask, dtype=torch.bool)
+        pole_mask[:pole_rows, :] = False
+        pole_mask[-pole_rows:, :] = False
+        valid_mask = valid_mask & pole_mask
+
+    # Ensure mask matches grid downsampling if simple sub-sampling used in equirect_to_gaussians
+    # In equirect_to_gaussians:
+    # if depth.shape != grid.shape: depth = downsampled
+    # But valid_mask calculation uses `depth`.
+    # `depth` passed to this function SHOULD match grid steps if called correctly from core.py
+    # But let's be safe and assume `depth` is the one used for `equirect_to_gaussians`.
+    
+    # We essentially need the flattened mask indices
+    valid_flat = valid_mask.flatten()
+
+    # Helper to sample and flatten map
+    def sample_map(feature_map: torch.Tensor, channels: int) -> torch.Tensor:
+        # feature_map: [H, W] or [H, W, C]
+        # Resize to grid size if needed
+        if feature_map.shape[0] != H_grid or feature_map.shape[1] != W_grid:
+            # Add dims for interpolate: [1, C, H, W]
+            if feature_map.dim() == 2:
+                inp = feature_map.unsqueeze(0).unsqueeze(0)
+            else:
+                inp = feature_map.permute(2, 0, 1).unsqueeze(0)
+                
+            out = F.interpolate(inp, size=(H_grid, W_grid), mode='bilinear', align_corners=True)
+            
+            if feature_map.dim() == 2:
+                resized = out.squeeze()
+            else:
+                resized = out.squeeze(0).permute(1, 2, 0)
+        else:
+            resized = feature_map
+            
+        if channels == 1:
+             return resized.flatten()[valid_flat].unsqueeze(-1)
+        else:
+             return resized.reshape(-1, channels)[valid_flat]
+
+    # Refine Opacity
+    if refined_attrs.opacities is not None and opacity_blend > 0:
+        ref_opacities_flat = sample_map(refined_attrs.opacities, 1)
+        # Blend
+        base_gaussians['opacities'] = (
+            (1 - opacity_blend) * base_gaussians['opacities'] +
+            opacity_blend * ref_opacities_flat
+        ).clamp(0.01, 0.99)
+
+    # Refine Scales
+    if refined_attrs.scales is not None and scale_blend > 0:
+        ref_scales_flat = sample_map(refined_attrs.scales, 3)
+        
+        # SHARP scales are in perspective space.
+        # We treat them as a refinement multiplier for our geometric scales.
+        # Normalize by mean to get relative variation
+        scale_mult = ref_scales_flat / (ref_scales_flat.mean() + 1e-6)
+        scale_mult = scale_mult.clamp(0.5, 2.0)
+        
+        base_gaussians['scales'] = (
+            (1 - scale_blend) * base_gaussians['scales'] +
+            scale_blend * base_gaussians['scales'] * scale_mult
+        )
+
+    # Refine Colors
+    if refined_attrs.colors is not None:
+        ref_colors_flat = sample_map(refined_attrs.colors, 3)
+        base_gaussians['colors'] = ref_colors_flat.clamp(0, 1)
+
+    return base_gaussians

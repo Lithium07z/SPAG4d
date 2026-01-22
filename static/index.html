@@ -62,6 +62,11 @@
                                 <option value="full">Full HQ</option>
                             </select>
                             <button id="orbit-view-btn" class="sm-btn" title="Outside View (O)">Outside</button>
+                            <label style="display: flex; align-items: center; gap: 4px; font-size: 0.8em; color: #aaa;"
+                                title="Flip Y axis orientation">
+                                <input type="checkbox" id="flip-y-toggle" checked style="width: 14px; height: 14px;">
+                                Flip Y
+                            </label>
                             <button id="reset-view-btn" class="sm-btn" title="Reset View (R)">Reset</button>
                         </div>
                     </div>
@@ -171,6 +176,28 @@
                             <input type="number" id="depth-max" value="100" min="10" max="1000" step="10"
                                 title="Maximum depth">
                         </div>
+                    </div>
+
+                    <!-- SHARP Params -->
+                    <div class="param-group" style="border-left: 1px solid #444; padding-left: 10px; margin-left: 5px;"
+                        title="Perceptual refinement using ML-SHARP. Requires download (~3GB).">
+                        <label for="sharp-refine">Magic Fix (SHARP)</label>
+                        <input type="checkbox" id="sharp-refine" style="width: 18px; height: 18px;">
+                    </div>
+
+                    <div class="param-group" id="sharp-blend-group" style="display: none; opacity: 0.5;">
+                        <label for="scale-blend">Detail Blend</label>
+                        <input type="range" id="scale-blend" min="0" max="1" step="0.1" value="0.5"
+                            title="Blend geometric vs learned scales (0=Geo, 1=Learned)">
+                    </div>
+
+                    <div class="param-group" id="sharp-projection-group" style="display: none; opacity: 0.5;"
+                        title="Projection mode. Cubemap (6 faces, fast) or Icosahedral (20 faces, better quality).">
+                        <label for="sharp-projection">Proj</label>
+                        <select id="sharp-projection" style="width: 85px;">
+                            <option value="cubemap" selected>Cube (6)</option>
+                            <option value="icosahedral">Icosa (20)</option>
+                        </select>
                     </div>
                 </div>
 

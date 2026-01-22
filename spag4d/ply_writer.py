@@ -49,11 +49,11 @@ def save_ply_gsplat(
     
     # ─────────────────────────────────────────────────────────────────
     # Coordinate Transform: 
-    # Internal is Y-up. Output format (gsplat) often expects Y-up or 
-    # handles camera vs world separately.
-    # We pass through raw coordinates now that internal grid is fixed.
+    # Internal is Y-up. Many viewers expect different conventions.
+    # Negate Y to flip orientation for correct display.
     # ─────────────────────────────────────────────────────────────────
-    means_out = means
+    means_out = means.copy()
+    means_out[:, 1] = -means[:, 1]  # Flip Y
     
     # Quaternions are already in correct orientation relative to means
     quats_out = quats

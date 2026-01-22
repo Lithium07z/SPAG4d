@@ -81,12 +81,15 @@ class SplatViewer {
             uniform mat4 uModelViewMatrix;
             uniform mat4 uProjectionMatrix;
             uniform float uPointSize;
+            uniform float uFlipY;
             
             varying vec3 vColor;
             varying float vOpacity;
             
             void main() {
-                gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
+                vec3 pos = aPosition;
+                pos.y = pos.y * uFlipY;
+                gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(pos, 1.0);
                 gl_PointSize = uPointSize / gl_Position.w;
                 vColor = aColor;
                 vOpacity = aOpacity;
@@ -137,7 +140,11 @@ class SplatViewer {
             modelViewMatrix: gl.getUniformLocation(this.program, 'uModelViewMatrix'),
             projectionMatrix: gl.getUniformLocation(this.program, 'uProjectionMatrix'),
             pointSize: gl.getUniformLocation(this.program, 'uPointSize'),
+            flipY: gl.getUniformLocation(this.program, 'uFlipY'),
         };
+
+        // Default flipY value (1 = normal, -1 = flipped)
+        this.flipY = -1;
     }
 
     compileShader(type, source) {
@@ -309,7 +316,27 @@ class SplatViewer {
             offset += 4 + 15;
         }
 
-        return { positions, colors, opacities, count: vertexCount };
+        // Compute bounds
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+        for (let i = 0; i < vertexCount; i++) {
+            const x = positions[i * 3 + 0];
+            const y = positions[i * 3 + 1];
+            const z = positions[i * 3 + 2];
+
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+            if (z < minZ) minZ = z;
+            if (z > maxZ) maxZ = z;
+        }
+
+        return {
+            positions, colors, opacities, count: vertexCount,
+            bounds: { min: { x: minX, y: minY, z: minZ }, max: { x: maxX, y: maxY, z: maxZ } }
+        };
     }
 
     float16ToFloat32(h) {
@@ -400,6 +427,9 @@ class SplatViewer {
 
         // Point size
         gl.uniform1f(this.uniformLocations.pointSize, 20.0);
+
+        // Flip Y (for orientation correction)
+        gl.uniform1f(this.uniformLocations.flipY, this.flipY);
 
         // Bind position
         gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
@@ -614,10 +644,36 @@ class SplatViewer {
     }
 
     setOutsideView() {
-        // Position camera to see the scene from "outside"
-        // Move back and up
-        this.position = { x: 0, y: 5, z: 15 };
-        this.rotation = { yaw: 0, pitch: -0.3 };
+        if (!this.data || !this.data.bounds) {
+            // Fallback if no bounds yet
+            this.position = { x: 0, y: 5, z: 15 };
+            this.rotation = { yaw: 0, pitch: -0.3 };
+            return;
+        }
+
+        const b = this.data.bounds;
+        const cx = (b.min.x + b.max.x) / 2;
+        const cy = (b.min.y + b.max.y) / 2;
+        const cz = (b.min.z + b.max.z) / 2;
+
+        const sizeX = b.max.x - b.min.x;
+        const sizeY = b.max.y - b.min.y;
+        const sizeZ = b.max.z - b.min.z;
+        const maxDim = Math.max(sizeX, sizeY, sizeZ);
+
+        // Position camera to look at center
+        // We set position back by maxDim * 1.5
+        // And slightly up?
+
+        // Since the viewer uses simple yaw/pitch check:
+        // Position = target + backward vector
+
+        this.position.x = cx;
+        this.position.y = cy + maxDim * 0.2; // Slightly up
+        this.position.z = cz + maxDim * 1.5; // Back
+
+        this.rotation = { yaw: 0, pitch: -0.1 };
+
         // Reset keys avoids movement sticking
         this.keys = { w: false, a: false, s: false, d: false, q: false, e: false };
     }
@@ -653,6 +709,14 @@ class SplatViewer {
             this.container.appendChild(msg);
         }
         msg.textContent = text;
+    }
+
+    toggleFlipY() {
+        this.flipY = -this.flipY;
+    }
+
+    setFlipY(flip) {
+        this.flipY = flip ? -1 : 1;
     }
 }
 

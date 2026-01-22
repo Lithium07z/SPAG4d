@@ -40,7 +40,29 @@ class SPAG4DApp {
         this.thicknessInput = document.getElementById('thickness');
         this.globalScaleInput = document.getElementById('global-scale');
         this.depthMinInput = document.getElementById('depth-min');
+        this.depthMinInput = document.getElementById('depth-min');
         this.depthMaxInput = document.getElementById('depth-max');
+
+        // SHARP Elements
+        this.sharpRefineInput = document.getElementById('sharp-refine');
+        this.scaleBlendInput = document.getElementById('scale-blend');
+        this.sharpBlendGroup = document.getElementById('sharp-blend-group');
+        this.sharpProjectionInput = document.getElementById('sharp-projection');
+        this.sharpProjectionGroup = document.getElementById('sharp-projection-group');
+
+        if (this.sharpRefineInput) {
+            this.sharpRefineInput.addEventListener('change', () => {
+                const checked = this.sharpRefineInput.checked;
+                if (this.sharpBlendGroup) {
+                    this.sharpBlendGroup.style.display = checked ? 'flex' : 'none';
+                    this.sharpBlendGroup.style.opacity = checked ? '1' : '0.5';
+                }
+                if (this.sharpProjectionGroup) {
+                    this.sharpProjectionGroup.style.display = checked ? 'flex' : 'none';
+                    this.sharpProjectionGroup.style.opacity = checked ? '1' : '0.5';
+                }
+            });
+        }
 
         // Event Listeners
         this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
@@ -72,6 +94,16 @@ class SPAG4DApp {
             helpBtn.addEventListener('click', () => {
                 helpPanel.classList.toggle('visible');
                 helpBtn.textContent = helpPanel.classList.contains('visible') ? '✕ Close' : '? Help';
+            });
+        }
+
+        // Flip Y Toggle
+        const flipYToggle = document.getElementById('flip-y-toggle');
+        if (flipYToggle) {
+            flipYToggle.addEventListener('change', () => {
+                if (this.splatViewer) {
+                    this.splatViewer.setFlipY(flipYToggle.checked);
+                }
             });
         }
 
@@ -244,6 +276,10 @@ class SPAG4DApp {
         this.convertBtn.disabled = true;
         this.setStatus('Uploading...', 'Preparing');
 
+        // Clear old subtext
+        const subtexts = document.querySelectorAll('.status-subtext');
+        subtexts.forEach(el => el.remove());
+
         // Disable depth tab during conversion
         const tabDepth = document.getElementById('tab-depth');
         if (tabDepth) tabDepth.disabled = true;
@@ -263,7 +299,11 @@ class SPAG4DApp {
             thickness: this.thicknessInput.value,
             global_scale: this.globalScaleInput.value,
             depth_min: this.depthMinInput.value,
-            depth_max: this.depthMaxInput.value
+            depth_max: this.depthMaxInput.value,
+            sharp_refine: this.sharpRefineInput ? this.sharpRefineInput.checked : false,
+            sharp_projection: this.sharpProjectionInput ? this.sharpProjectionInput.value : 'cubemap',
+            scale_blend: this.scaleBlendInput ? this.scaleBlendInput.value : 0.5,
+            opacity_blend: 1.0 // Fixed for now
         });
 
         try {
@@ -344,6 +384,20 @@ class SPAG4DApp {
                         ? `${status.total_frames} frames • ${status.total_frames} splats`
                         : `${status.splat_count.toLocaleString()} splats • ${status.file_size_mb} MB • ${status.processing_time}s`
                 );
+
+                // Additional status info for SHARP
+                if (status.params && status.params.sharp_refine) {
+                    const blend = status.params.scale_blend;
+                    const sharpInfo = document.createElement('div');
+                    sharpInfo.className = 'status-subtext';
+                    sharpInfo.style.fontSize = '0.85em';
+                    sharpInfo.style.color = '#4CAF50';
+                    sharpInfo.textContent = `✨ SHARP Active (Blend: ${blend})`;
+                    this.statusText.parentElement.appendChild(sharpInfo);
+
+                    // Auto-remove after 5s or next job? 
+                    // Better to just clear it on start.
+                }
 
                 if (this.isVideo) {
                     this.downloadZipBtn.disabled = false;

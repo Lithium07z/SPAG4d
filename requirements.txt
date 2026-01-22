@@ -22,6 +22,7 @@ opencv-python>=4.8.0
 torchmetrics>=1.0.0
 mmengine>=0.10.0
 safetensors>=0.4.0
+# ml-sharp @ file:///D:/SPAG-4D/ml-sharp
 
 # Development (optional)
 pytest>=7.0.0

@@ -32,6 +32,7 @@ dependencies = [
     "click>=8.0",
     "scipy>=1.10",
     "opencv-python>=4.8",
+    "safetensors>=0.4.0",
 ]
 
 [project.optional-dependencies]
@@ -43,8 +44,11 @@ server = [
 download = [
     "huggingface_hub>=0.20",
 ]
+sharp = [
+    "ml-sharp @ file:///D:/SPAG-4D/ml-sharp",
+]
 all = [
-    "spag4d[server,download]",
+    "spag4d[server,download,sharp]",
 ]
 dev = [
     "pytest>=7.0",

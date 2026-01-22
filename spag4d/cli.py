@@ -35,6 +35,19 @@ def main():
 @click.option('--device', default='cuda', help='Device: cuda, cpu, mps')
 @click.option('--quiet', is_flag=True, help='Suppress progress output')
 @click.option('--mock-dap', is_flag=True, help='Use mock DAP model (for testing)')
+# SHARP Options
+@click.option('--sharp-refine/--no-sharp-refine', default=False,
+              help='Use SHARP model for perceptual attribute refinement')
+@click.option('--sharp-model', type=click.Path(exists=True), default=None,
+              help='Path to SHARP checkpoint (downloads if not specified)')
+@click.option('--sharp-cubemap-size', type=int, default=1536,
+              help='Cubemap face size for SHARP (default 1536)')
+@click.option('--sharp-projection', type=click.Choice(['cubemap', 'icosahedral']), 
+              default='cubemap', help='SHARP projection mode: cubemap (6 faces) or icosahedral (20 faces)')
+@click.option('--scale-blend', type=float, default=0.5,
+              help='Blend factor for SHARP scales (0=geometric only, 1=SHARP only)')
+@click.option('--opacity-blend', type=float, default=1.0,
+              help='Blend factor for SHARP opacities')
 def convert(
     input_path: str,
     output_path: str,
@@ -51,7 +64,13 @@ def convert(
     batch: bool,
     device: str,
     quiet: bool,
-    mock_dap: bool
+    mock_dap: bool,
+    sharp_refine: bool,
+    sharp_model: str,
+    sharp_cubemap_size: int,
+    sharp_projection: str,
+    scale_blend: float,
+    opacity_blend: float,
 ):
     """
     Convert equirectangular panorama to Gaussian splat.
@@ -68,7 +87,14 @@ def convert(
     if not quiet:
         click.echo("Loading SPAG-4D...")
     
-    converter = SPAG4D(device=device, use_mock_dap=mock_dap)
+    converter = SPAG4D(
+        device=device,
+        use_mock_dap=mock_dap,
+        use_sharp_refinement=sharp_refine,
+        sharp_model_path=sharp_model,
+        sharp_cubemap_size=sharp_cubemap_size,
+        sharp_projection_mode=sharp_projection  
+    )
     
     if batch:
         # Batch mode: process all images in directory
@@ -100,7 +126,9 @@ def convert(
                     sky_threshold=sky_threshold,
                     sh_degree=int(sh_degree),
                     output_format='splat' if output_format == 'splat' else 'ply',
-                    force_erp=force_erp
+                    force_erp=force_erp,
+                    scale_blend=scale_blend,
+                    opacity_blend=opacity_blend,
                 )
                 
                 if not quiet:
@@ -130,7 +158,9 @@ def convert(
             sky_threshold=sky_threshold,
             sh_degree=int(sh_degree),
             output_format=fmt,
-            force_erp=force_erp
+            force_erp=force_erp,
+            scale_blend=scale_blend,
+            opacity_blend=opacity_blend,
         )
         
         if not quiet:
@@ -182,13 +212,38 @@ def serve(port: int, host: str, reload: bool):
             "uvicorn not installed. Install with: pip install uvicorn"
         )
     
+    import logging
+    import copy
+    from uvicorn.config import LOGGING_CONFIG
+
+    class EndpointFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return record.getMessage().find("GET /api/status") == -1
+
+    # Modify default log config
+    log_config = copy.deepcopy(LOGGING_CONFIG)
+    
+    # Ensure filters list exists in access logger config (it might be None or missing)
+    if 'filters' not in log_config:
+        log_config['filters'] = {}
+    
+    log_config['filters']['endpoint_filter'] = {
+        '()': EndpointFilter
+    }
+    
+    if 'uvicorn.access' in log_config['loggers']:
+        if 'filters' not in log_config['loggers']['uvicorn.access']:
+             log_config['loggers']['uvicorn.access']['filters'] = []
+        log_config['loggers']['uvicorn.access']['filters'].append("endpoint_filter")
+
     click.echo(f"Starting SPAG-4D web UI at http://{host}:{port}")
     
     uvicorn.run(
         "api:app",
         host=host,
         port=port,
-        reload=reload
+        reload=reload,
+        log_config=log_config
     )
 
 
@@ -272,10 +327,11 @@ def convert_video(input_video: str, output_dir: str, fps: int, start: float, dur
                         # For CLI simplicity, we rely on core.convert but we can't inject rotation easily 
                         # without refactoring core.convert or duplicating logic here.
                         #
-                        # For now, let's stick to standard conversion for CLI verification
-                        # unless we want to duplicate valid_mask/grid logic.
-                        # Given the verifying task is about *processing*, basic conversion is fine.
-                        pass
+                        # TODO: Stabilization requires refactoring core.convert() to accept
+                        # pre-computed gaussians. For now, VO tracking runs but rotation
+                        # is not applied. Use api.py for full stabilization support.
+                        if not quiet:  # Only show warning if not quiet
+                            click.echo("⚠ Note: CLI stabilization tracks camera but doesn't apply rotation. Use web API for full support.", err=True)
 
                     converter.convert(
                         input_path=str(frame_path),

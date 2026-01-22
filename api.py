@@ -51,11 +51,11 @@ class JobInfo:
         self.input_path: Optional[Path] = None
         self.output_ply_path: Optional[Path] = None
         self.output_splat_path: Optional[Path] = None
-        self.output_splat_path: Optional[Path] = None
         self.preview_splat_path: Optional[Path] = None
         self.depth_preview_path: Optional[Path] = None
         self.result: Optional[ConversionResult] = None
         self.error: Optional[str] = None
+        self.params: dict = {}  # Store conversion params for UI feedback
         
         # Video specific
         self.is_video = False
@@ -100,8 +100,14 @@ async def lifespan(app: FastAPI):
 async def cleanup_loop():
     """Periodic cleanup of expired jobs and temp files."""
     while True:
-        await asyncio.sleep(60)  # Check every minute
-        await run_cleanup()
+        try:
+            await asyncio.sleep(60)  # Check every minute
+            await run_cleanup()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"Cleanup error: {e}")
+            await asyncio.sleep(60)  # Wait before retry
 
 
 async def run_cleanup():
@@ -133,14 +139,15 @@ async def run_cleanup():
                         pass
     
     # Also clean orphaned files in temp dir
-        try:
+    try:
+        for f in TEMP_DIR.iterdir():
             if now - f.stat().st_mtime > JOB_TTL_SECONDS:
                 if f.is_dir():
                     shutil.rmtree(f, ignore_errors=True)
                 else:
                     f.unlink()
-        except Exception:
-            pass
+    except Exception:
+        pass
 
 
 app = FastAPI(title="SPAG-4D", lifespan=lifespan)
@@ -157,7 +164,13 @@ async def convert_panorama(
     thickness: float = Query(0.1, ge=0.01, le=1.0),
     global_scale: float = Query(1.0, ge=0.1, le=10.0),
     depth_min: float = Query(0.1, ge=0.01),
-    depth_max: float = Query(100.0, le=1000.0)
+
+    depth_max: float = Query(100.0, le=1000.0),
+    # SHARP params
+    sharp_refine: bool = Query(False),
+    sharp_projection: str = Query("cubemap"),  # "cubemap" or "icosahedral"
+    scale_blend: float = Query(0.5, ge=0.0, le=1.0),
+    opacity_blend: float = Query(1.0, ge=0.0, le=1.0)
 ):
     """
     Convert uploaded panorama to Gaussian splat.
@@ -174,6 +187,14 @@ async def convert_panorama(
     job = JobInfo(job_id)
     jobs[job_id] = job
     
+    # Store params for feedback
+    job.params = {
+        "sharp_refine": sharp_refine,
+        "sharp_projection": sharp_projection,
+        "scale_blend": scale_blend,
+        "opacity_blend": opacity_blend
+    }
+    
     # Determine file extension
     suffix = Path(file.filename).suffix if file.filename else '.jpg'
     
@@ -189,7 +210,8 @@ async def convert_panorama(
     
     # Queue processing (non-blocking)
     asyncio.create_task(process_job(
-        job, stride, scale_factor, thickness, global_scale, depth_min, depth_max
+        job, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
+        sharp_refine, sharp_projection, scale_blend, opacity_blend
     ))
     
     return JSONResponse({
@@ -251,8 +273,13 @@ async def process_job(
     scale_factor: float,
     thickness: float,
     global_scale: float,
+
     depth_min: float,
-    depth_max: float
+    depth_max: float,
+    sharp_refine: bool = False,
+    sharp_projection: str = "cubemap",
+    scale_blend: float = 0.5,
+    opacity_blend: float = 1.0
 ):
     """Process conversion job with GPU semaphore."""
     global processor
@@ -274,7 +301,10 @@ async def process_job(
                 global_scale=global_scale,
                 depth_min=depth_min,
                 depth_max=depth_max,
-                depth_preview_path=str(job.depth_preview_path)
+                depth_preview_path=str(job.depth_preview_path),
+                use_sharp_refinement=sharp_refine,
+                scale_blend=scale_blend,
+                opacity_blend=opacity_blend
             )
             
             # Generate web preview (low-res SPLAT)
@@ -288,7 +318,10 @@ async def process_job(
                 global_scale=global_scale,
                 depth_min=depth_min,
                 depth_max=depth_max,
-                output_format="splat"
+                output_format="splat",
+                use_sharp_refinement=sharp_refine, # Apply to preview too? keeping consistent
+                scale_blend=scale_blend,
+                opacity_blend=opacity_blend
             )
             
             # Also generate full SPLAT for download
@@ -307,8 +340,11 @@ async def process_job(
                 job.input_path.unlink()
                 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         job.status = "error"
         job.error = str(e)
+        print(f"Job failed with error: {e}")
         job.last_updated = time.time()
 
 
@@ -558,6 +594,13 @@ async def get_job_status(job_id: str):
              response["preview_manifest_url"] = f"/api/preview_video/{job_id}/manifest.json"
              response["zip_url"] = f"/api/download_video/{job_id}"
     
+             response["preview_manifest_url"] = f"/api/preview_video/{job_id}/manifest.json"
+             response["zip_url"] = f"/api/download_video/{job_id}"
+    
+    # Include params used
+    if job.params:
+        response["params"] = job.params
+
     return JSONResponse(response)
 
 

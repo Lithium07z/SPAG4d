@@ -1,6 +1,5 @@
 # SPAG-4D: 360° Panorama to Gaussian Splat
 
-
 ![SPAG-4D Demo](assets/demo.gif)
 
 Convert 360° equirectangular panoramas into viewable 3D Gaussian Splat files.
@@ -8,6 +7,7 @@ Convert 360° equirectangular panoramas into viewable 3D Gaussian Splat files.
 ## Features
 
 - **Native 360° Depth Estimation** - Uses DAP (Depth Any Panoramas) for equirectangular-aware depth
+- **SHARP Refinement** - Optional high-frequency detail enhancement using Apple's ML-SHARP
 - **360° Video Support** - Convert video sequences with frame extraction and trimming
 - **Metric Depth Output** - Real-world scale with manual adjustment option
 - **Standard 3DGS PLY Output** - Compatible with gsplat, SuperSplat, SHARP viewers
@@ -30,28 +30,74 @@ python -m venv .venv
 # Install PyTorch with CUDA
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
-# Install SPAG-4D and DAP dependencies
+# Install SPAG-4D (Standard)
 pip install -e ".[all]"
-pip install torchmetrics mmengine safetensors einops opencv-python scipy
+```
 
-# Run the web UI
-.\start_spag4d.bat  # Windows
-# Or manually: python -m spag4d.cli serve --port 7860
+### ML-SHARP Installation (Optional)
+
+To use the **Magic Fix (SHARP)** feature for enhanced detail, you need the `ml-sharp` package from Apple.
+
+> **Note:** SHARP weights (~3GB) are downloaded automatically on first use.
+
+#### Option A: Install from Local Clone (Recommended)
+
+The `ml-sharp` submodule is included in this repo:
+
+```bash
+# Initialize submodule (if not already)
+git submodule update --init --recursive
+
+# Install ml-sharp from local directory
+pip install .\ml-sharp
+
+# Or install SPAG-4D with sharp extras
+pip install -e ".[sharp]"
+```
+
+#### Option B: Install from GitHub
+
+```bash
+pip install "ml-sharp @ git+https://github.com/apple/ml-sharp.git"
+```
+
+#### Verify Installation
+
+```bash
+python -c "import sharp; print('ML-SHARP installed successfully')"
+```
+
+#### SHARP Projection Modes
+
+SHARP works by projecting the 360° image to perspective faces, running inference, and reprojecting:
+
+| Mode | Faces | Quality | Speed | VRAM |
+|------|-------|---------|-------|------|
+| `cubemap` | 6 | Good | Fast | ~6GB |
+| `icosahedral` | 20 | Better | ~3x slower | ~12GB |
+
+Select the projection mode in the UI (dropdown next to "Magic Fix") or via CLI:
+```bash
+python -m spag4d.cli convert input.jpg out.ply --sharp-refine --sharp-projection icosahedral
 ```
 
 ## Usage
 
 ### Web UI
 
-Double-click `start_spag4d.bat` or run:
-```bash
-python -m spag4d.cli serve --port 7860
-```
-
-Open http://localhost:7860 in your browser.
+1. Start the server:
+   ```bash
+   .\start_spag4d.bat
+   # Or manually: python -m spag4d.cli serve --port 7860
+   ```
+2. Open http://localhost:7860 in your browser.
+3. Upload a panoramic image or video.
+4. **SHARP Refinement**: Check the **"Magic Fix (SHARP)"** box to enable detail enhancement.
+   - Adjust **"Detail Blend"** slider to control the strength.
+5. Click **Convert** and view the result in the 3D viewer.
 
 - **Input Preview**: Toggle between 360° Sphere and Flat Equirectangular views.
-- **Splat Viewer**: Use WASD + Mouse to fly, Scroll to zoom.
+- **Splat Viewer**: Use WASD + Mouse to fly, Scroll to zoom. "Outside" center view.
 
 ### CLI
 
@@ -59,11 +105,11 @@ Open http://localhost:7860 in your browser.
 # Basic conversion
 python -m spag4d.cli convert panorama.jpg output.ply
 
-# With options
+# With SHARP refinement
 python -m spag4d.cli convert panorama.jpg output.ply \
-    --stride 2 \
-    --scale-factor 1.5 \
-    --format both
+    --sharp-refine \
+    --scale-blend 0.5 \
+    --format splat
 
 # Batch processing
 python -m spag4d.cli convert ./input/ ./output/ --batch
@@ -77,13 +123,20 @@ python -m spag4d.cli convert_video input.mp4 output_dir --fps 10 --start 0.0 --d
 ```python
 from spag4d import SPAG4D
 
-converter = SPAG4D(device='cuda')
+# Initialize with SHARP support
+converter = SPAG4D(
+    device='cuda',
+    use_sharp_refinement=True
+)
 
 result = converter.convert(
     input_path='panorama.jpg',
     output_path='output.ply',
     stride=2,
-    scale_factor=1.5
+    scale_factor=1.5,
+    # Enable SHARP for this conversion
+    use_sharp_refinement=True,
+    scale_blend=0.5
 )
 
 print(f"Generated {result.splat_count:,} Gaussians")
@@ -99,36 +152,21 @@ print(f"Generated {result.splat_count:,} Gaussians")
 | `global_scale` | 1.0 | Depth scale correction |
 | `depth_min` | 0.1 | Minimum depth (meters) |
 | `depth_max` | 100.0 | Maximum depth (meters) |
+| `sky_threshold` | 80.0 | Filter points beyond this distance |
 
-### Video Parameters
+### SHARP Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `fps` | 10 | Frames per second to extract |
-| `start_time` | 0.0 | Start time in seconds |
-| `duration` | None | Duration in seconds (optional) |
-
-## Output Formats
-
-- **PLY** - Full precision, viewer-compatible (gsplat, SuperSplat)
-- **SPLAT** - Compressed for web (~8x smaller)
+| `sharp_refine` | False | Enable SHARP refinement |
+| `scale_blend` | 0.5 | Blend ratio for geometric vs learned scales (0=Geo, 1=Learned) |
+| `opacity_blend` | 1.0 | Blend ratio for opacities |
 
 ## Requirements
 
 - Python 3.10+
 - CUDA-capable GPU (8GB+ VRAM recommended)
 - ffmpeg (for video processing)
-- scipy (for visual odometry)
-- opencv-python (for image processing)
-
-### DAP Dependencies
-
-The DAP model requires these additional packages:
-- `torchmetrics` - For model metrics
-- `mmengine` - For configuration handling  
-- `safetensors` - For safe model loading
-- `einops` - For tensor operations
-- `opencv-python` - For image processing
 
 ## Project Structure
 
@@ -136,22 +174,17 @@ The DAP model requires these additional packages:
 SPAG-4D/
 ├── spag4d/              # Main package
 │   ├── dap_arch/        # DAP model wrapper
-│   │   └── DAP/         # DAP repository (included)
 │   ├── core.py          # Main orchestrator
-│   ├── cli.py           # Command-line interface
+│   ├── sharp_refiner.py # SHARP integration
 │   └── ...
 ├── static/              # Web UI assets
 ├── api.py               # FastAPI backend
-├── start_spag4d.bat     # Windows launcher
+├── ml-sharp/            # (Optional) Local ml-sharp dependency
 └── TestImage/           # Sample panoramas
 ```
 
 ## References
 
 - [DAP - Depth Any Panoramas](https://github.com/Insta360-Research-Team/DAP)
+- [ML-SHARP](https://github.com/apple/ml-sharp)
 - [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)
-- [SuperSplat Viewer](https://playcanvas.com/supersplat/editor)
-
-## License
-
-MIT

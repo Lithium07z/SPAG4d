@@ -35,7 +35,11 @@ class SPAG4D:
         self,
         device: str = "cuda",
         model_path: Optional[str] = None,
-        use_mock_dap: bool = False
+        use_mock_dap: bool = False,
+        use_sharp_refinement: bool = False,
+        sharp_model_path: Optional[str] = None,
+        sharp_cubemap_size: int = 1536,
+        sharp_projection_mode: str = "cubemap",  # "cubemap" or "icosahedral"
     ):
         """
         Initialize SPAG4D converter.
@@ -44,6 +48,10 @@ class SPAG4D:
             device: Device for computation ("cuda", "cpu", "mps")
             model_path: Optional explicit path to DAP weights
             use_mock_dap: Use mock DAP model (for testing without weights)
+            use_sharp_refinement: Enable SHARP attribute refinement
+            sharp_model_path: Optional path to SHARP weights
+            sharp_cubemap_size: Cubemap face size for SHARP
+            sharp_projection_mode: "cubemap" (6 faces) or "icosahedral" (20 faces)
         """
         self.device = torch.device(
             device if device != "cuda" or torch.cuda.is_available() else "cpu"
@@ -56,6 +64,21 @@ class SPAG4D:
         else:
             from .dap_model import DAPModel
             self.dap = DAPModel.load(model_path, device=self.device)
+        
+        # SHARP refinement (optional)
+        self.sharp_refiner = None
+        if use_sharp_refinement:
+            from .sharp_refiner import SHARPRefiner
+            self.sharp_refiner = SHARPRefiner(
+                device=self.device,
+                cubemap_size=sharp_cubemap_size,
+                projection_mode=sharp_projection_mode,
+            )
+            # Preload if path provided, otherwise lazy load
+            if sharp_model_path:
+                self.sharp_refiner.load_model(sharp_model_path)
+        self.sharp_cubemap_size = sharp_cubemap_size
+        self.sharp_projection_mode = sharp_projection_mode
         
         # Cache for spherical grids (by resolution + stride)
         self._grid_cache = {}
@@ -73,8 +96,10 @@ class SPAG4D:
         sky_threshold: float = 80.0,
         sh_degree: int = 0,
         output_format: Literal["ply", "splat"] = "ply",
+
         force_erp: bool = False,
-        depth_preview_path: Optional[Union[str, Path]] = None
+        depth_preview_path: Optional[Union[str, Path]] = None,
+        **kwargs
     ) -> ConversionResult:
         """
         Convert equirectangular panorama to Gaussian splat.
@@ -165,17 +190,55 @@ class SPAG4D:
             # Combine learned mask with sky threshold
             validity_mask = validity_mask * (depth <= sky_threshold).float()
         
+        # SHARP Refinement
+        refined_attrs = None
+        use_sharp = kwargs.get('use_sharp_refinement', False)
+        
+        if use_sharp:
+            if self.sharp_refiner is None:
+                from .sharp_refiner import SHARPRefiner
+                self.sharp_refiner = SHARPRefiner(
+                    device=self.device,
+                    cubemap_size=self.sharp_cubemap_size,
+                )
+            
+            # Ensure model is loaded (no-op if already loaded)
+            self.sharp_refiner.load_model()
+            
+            # We need raw image tensor (0-1 float)
+            # image_tensor is uint8 [H, W, 3] from earlier loading?
+            # Let's check: "image_tensor = torch.from_numpy(np.array(img)).to(self.device)"
+            # PIL -> numpy is usually uint8.
+            img_float = image_tensor.float() / 255.0
+            refined_attrs = self.sharp_refiner.refine(img_float, depth)
+
         # Convert to Gaussians
-        gaussians = equirect_to_gaussians(
-            image=image_tensor,
-            depth=depth,
-            grid=grid,
-            scale_factor=scale_factor,
-            thickness_ratio=thickness_ratio,
-            depth_min=depth_min,
-            depth_max=depth_max,
-            validity_mask=validity_mask
-        )
+        if refined_attrs:
+            from .gaussian_converter import equirect_to_gaussians_refined
+            gaussians = equirect_to_gaussians_refined(
+                image=image_tensor,
+                depth=depth,
+                grid=grid,
+                refined_attrs=refined_attrs,
+                scale_factor=scale_factor,
+                thickness_ratio=thickness_ratio,
+                depth_min=depth_min,
+                depth_max=depth_max,
+                validity_mask=validity_mask,
+                scale_blend=kwargs.get('scale_blend', 0.5),
+                opacity_blend=kwargs.get('opacity_blend', 1.0),
+            )
+        else:
+            gaussians = equirect_to_gaussians(
+                image=image_tensor,
+                depth=depth,
+                grid=grid,
+                scale_factor=scale_factor,
+                thickness_ratio=thickness_ratio,
+                depth_min=depth_min,
+                depth_max=depth_max,
+                validity_mask=validity_mask
+            )
         
         # Save output
         output_path = Path(output_path)
