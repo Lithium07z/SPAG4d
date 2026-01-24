@@ -45,7 +45,7 @@ download = [
     "huggingface_hub>=0.20",
 ]
 sharp = [
-    "ml-sharp @ file:///D:/SPAG-4D/ml-sharp",
+    "ml-sharp @ git+https://github.com/apple/ml-sharp.git",
 ]
 all = [
     "spag4d[server,download,sharp]",
