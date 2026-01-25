@@ -66,7 +66,8 @@ def build_dap_model(max_depth: float = 100.0):
         raise ImportError(
             f"Failed to import DAP model: {e}\n\n"
             "Make sure the DAP repository is properly set up:\n"
-            "1. Clone https://github.com/Insta360-Research-Team/DAP to spag4d/dap_arch/DAP\n"
+            "1. Initialize the DAP submodule: git submodule update --init --recursive\n"
+            "   (or clone https://github.com/Insta360-Research-Team/DAP into spag4d/dap_arch/DAP)\n"
             "2. Install DAP dependencies: pip install einops opencv-python\n"
             "3. Ensure depth_anything_v2_metric is available in DAP/\n"
         )

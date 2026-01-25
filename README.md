@@ -19,8 +19,10 @@ Convert 360° equirectangular panoramas into viewable 3D Gaussian Splat files.
 
 ```bash
 # Clone with DAP submodule
-git clone https://github.com/cedarconnor/SPAG4d.git
+git clone --recurse-submodules https://github.com/cedarconnor/SPAG4d.git
 cd SPAG4d
+# If you already cloned, fetch submodules
+git submodule update --init --recursive
 
 # Create virtual environment
 python -m venv .venv

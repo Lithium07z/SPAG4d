@@ -15,6 +15,30 @@ from typing import List, Tuple, Literal
 import math
 
 
+def _load_dap_projection_utils():
+    from . import dap_arch
+
+    dap_dir = dap_arch.DAP_DIR
+    networks_dir = dap_dir / "networks"
+    if not networks_dir.exists():
+        raise ImportError(
+            "DAP projection utils not found.\n"
+            f"Expected {networks_dir} to exist.\n"
+            "Run: git submodule update --init --recursive\n"
+            "or clone https://github.com/Insta360-Research-Team/DAP into spag4d/dap_arch/DAP."
+        )
+
+    try:
+        from networks.projection_utils import Equirec2Cube, Cube2Equirec
+    except ImportError as exc:
+        raise ImportError(
+            "Failed to import DAP projection utils. Make sure DAP dependencies are installed "
+            "(opencv-python, scipy)."
+        ) from exc
+
+    return Equirec2Cube, Cube2Equirec
+
+
 class BaseProjector(ABC):
     """Base class for ERP ↔ tangent plane projectors."""
     
@@ -121,7 +145,7 @@ class CubemapProjector(BaseProjector):
     
     def project_erp_to_faces(self, erp_image: np.ndarray) -> List[np.ndarray]:
         """Use existing Equirec2Cube for cubemap projection."""
-        from .dap_arch.DAP.networks.projection_utils import Equirec2Cube
+        Equirec2Cube, _ = _load_dap_projection_utils()
         
         H, W = erp_image.shape[:2]
         e2c = Equirec2Cube(H, W, self.face_size)
@@ -140,7 +164,7 @@ class CubemapProjector(BaseProjector):
         erp_w: int
     ) -> torch.Tensor:
         """Use existing Cube2Equirec for reprojection."""
-        from .dap_arch.DAP.networks.projection_utils import Cube2Equirec
+        _, Cube2Equirec = _load_dap_projection_utils()
         
         # Stack faces horizontally [C, face_size, 6*face_size]
         C = face_features[0].shape[-1] if face_features[0].dim() == 3 else 1
