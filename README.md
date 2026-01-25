@@ -15,61 +15,104 @@ Convert 360° equirectangular panoramas into viewable 3D Gaussian Splat files.
 - **Web UI** - Preview 360° input (with Flat/Sphere modes) and 3D result
 - **CLI** - Batch processing and automation
 
-## Quick Start
+## Installation (Beginner-friendly)
+
+This section assumes a clean install on a new machine and walks you through each step.
+
+### 0) Before you start (one-time setup)
+
+- Install Python 3.10+ from https://www.python.org/downloads/ (check "Add Python to PATH")
+- Install Git from https://git-scm.com/downloads
+- If you have an NVIDIA GPU, update your driver (recommended for speed)
+- Make sure you have an internet connection and a few GB of free space (model weights download on first use)
+
+### 1) Download SPAG-4D (includes DAP)
+
+Open PowerShell and run:
 
 ```bash
-# Clone with DAP submodule
 git clone --recurse-submodules https://github.com/cedarconnor/SPAG4d.git
 cd SPAG4d
-# If you already cloned, fetch submodules
+```
+
+If you already cloned the repo, run this once:
+
+```bash
 git submodule update --init --recursive
+```
 
-# Create virtual environment
+### 2) Create and activate a virtual environment
+
+```bash
 python -m venv .venv
-.\.venv\Scripts\activate  # Windows
-# source .venv/bin/activate  # Linux/Mac
+.\.venv\Scripts\activate
+```
 
-# Install PyTorch with CUDA
+On macOS/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+If PowerShell blocks activation, run:
+
+```bash
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+Then activate the environment again.
+
+### 3) Install PyTorch
+
+If you have an NVIDIA GPU:
+
+```bash
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+```
 
-# Install SPAG-4D (Standard)
+If you do not have an NVIDIA GPU:
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+```
+
+### 4) Install SPAG-4D
+
+Recommended (Web UI + downloads, no SHARP):
+
+```bash
+pip install -e ".[server,download]"
+```
+
+Full install (includes Magic Fix / SHARP):
+
+```bash
 pip install -e ".[all]"
 ```
 
-### ML-SHARP Installation (Optional)
+### 5) Optional: Magic Fix (SHARP)
 
-To use the **Magic Fix (SHARP)** feature for enhanced detail, you need the `ml-sharp` package from Apple.
-
-> **Note:** SHARP weights (~3GB) are downloaded automatically on first use.
-
-#### Option A: Install from Local Clone (Recommended)
-
-The `ml-sharp` submodule is included in this repo:
+If you installed the standard version and want SHARP later:
 
 ```bash
-# Initialize submodule (if not already)
-git submodule update --init --recursive
-
-# Install ml-sharp from local directory
-pip install .\ml-sharp
-
-# Or install SPAG-4D with sharp extras
 pip install -e ".[sharp]"
 ```
 
-#### Option B: Install from GitHub
+SHARP weights (~3GB) are downloaded automatically the first time you use Magic Fix.
 
-```bash
-pip install "ml-sharp @ git+https://github.com/apple/ml-sharp.git"
-```
-
-#### Verify Installation
+Verify SHARP install (optional):
 
 ```bash
 python -c "import sharp; print('ML-SHARP installed successfully')"
 ```
 
-#### SHARP Projection Modes
+### Common installation issues
+
+- `No module named 'spag4d.dap_arch.DAP.networks'`: DAP submodule is missing. Run `git submodule update --init --recursive`.
+- `python` or `pip` not found: reinstall Python and check "Add Python to PATH".
+- PowerShell blocks activation: run the `Set-ExecutionPolicy` command above, then re-activate the venv.
+
+### SHARP Projection Modes
 
 SHARP works by projecting the 360° image to perspective faces, running inference, and reprojecting:
 

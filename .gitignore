@@ -37,7 +37,9 @@ temp_spag4d/
 *.temp
 
 # Logs
+# Logs
 *.log
+server_log.txt
 
 # Model weights (large files)
 *.pth
