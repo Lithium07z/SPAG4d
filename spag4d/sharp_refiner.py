@@ -39,22 +39,33 @@ class SHARPRefiner:
         device: torch.device,
         cubemap_size: int = 1536,
         blend_width: float = 0.05,
-        refine_colors: bool = False,
+        refine_colors: bool = True,
         projection_mode: str = "cubemap"  # "cubemap" or "icosahedral"
     ):
         """
         Args:
             device: Torch device
-            cubemap_size: Size of each face (SHARP expects 1536)
+            cubemap_size: Size of each face (must be multiple of 384 for DINOv2)
             blend_width: Width of seam blending region (fraction of face)
-            refine_colors: Whether to also refine colors (usually unnecessary)
+            refine_colors: Whether to also refine colors from SHARP
             projection_mode: "cubemap" (6 faces) or "icosahedral" (20 faces)
         """
         self.device = device
-        self.cubemap_size = cubemap_size
         self.blend_width = blend_width
         self.refine_colors = refine_colors
         self.projection_mode = projection_mode
+
+        # Validate cubemap size for DINOv2 384px patch alignment
+        if cubemap_size % 384 != 0:
+            valid_sizes = [1536, 1920, 2304, 3072, 3840, 4608, 6144]
+            nearest = min(valid_sizes, key=lambda x: abs(x - cubemap_size))
+            import warnings
+            warnings.warn(
+                f"cubemap_size={cubemap_size} not aligned with DINOv2 384px patches. "
+                f"Adjusting to {nearest} for optimal SHARP quality."
+            )
+            cubemap_size = nearest
+        self.cubemap_size = cubemap_size
 
         self.model = None
         self.projector = None  # Will be initialized in refine()
@@ -77,8 +88,10 @@ class SHARPRefiner:
         if model_path is None:
             model_path = self._get_or_download_weights()
 
-        self.model = create_predictor(PredictorParams())
-        
+        params = PredictorParams()
+        self._configure_max_quality(params)
+        self.model = create_predictor(params)
+
         # Suppress FutureWarning about weights_only
         import warnings
         with warnings.catch_warnings():
@@ -89,6 +102,50 @@ class SHARPRefiner:
         self.model.eval()
         self.model.to(self.device)
 
+    def _configure_max_quality(self, params):
+        """Configure PredictorParams for maximum output quality.
+
+        Based on optimized settings from 4DGS-Video-Generator research:
+        - low_pass_filter_eps=0.001 preserves more detail (default is 0.01)
+        - Overlapping monodepth patches reduce seam artifacts
+        - All-layer color extraction for richer output
+        - Delta factors tuned for fine-grained Gaussian correction
+        """
+        try:
+            # Low-pass filter: 0.001 preserves more fine detail (SHARP default 0.01)
+            params.low_pass_filter_eps = 0.001
+
+            # Scale range
+            params.max_scale = 10.0
+            params.min_scale = 0.0
+
+            # Color space: linearRGB for accurate blending
+            params.color_space = "linearRGB"
+
+            # Initializer: maximum quality extraction
+            params.initializer.scale_factor = 1.0
+            params.initializer.color_option = "all_layers"
+            params.initializer.first_layer_depth_option = "surface_min"
+            params.initializer.rest_layer_depth_option = "surface_min"
+            params.initializer.normalize_depth = True
+
+            # Delta factors: fine-tune Gaussian attribute corrections
+            params.delta_factor.xy = 0.001
+            params.delta_factor.z = 0.001
+            params.delta_factor.color = 0.1
+            params.delta_factor.opacity = 1.0
+            params.delta_factor.scale = 1.0
+            params.delta_factor.quaternion = 1.0
+
+            # Monodepth: overlapping patches reduce seam artifacts (critical for 360)
+            params.monodepth.use_patch_overlap = True
+
+            # Gaussian decoder: use depth input for better geometry
+            params.gaussian_decoder.use_depth_input = True
+        except AttributeError as e:
+            import warnings
+            warnings.warn(f"Could not set some SHARP quality parameters: {e}")
+
     def _get_or_download_weights(self) -> str:
         """Download SHARP weights if not cached."""
         self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -97,8 +154,7 @@ class SHARPRefiner:
         if cache_path.exists():
             return str(cache_path)
 
-        print(f"Downloading SHARP weights...")
-        print(f"Downloading SHARP weights...")
+        print("Downloading SHARP weights...")
         try:
             # Try direct download from Apple CDN first
             import urllib.request
@@ -270,9 +326,8 @@ class SHARPRefiner:
         # Add batch dim and run predictor
         face_batch = face.unsqueeze(0).permute(0, 3, 1, 2)  # [1, 3, H, W]
 
-        # SHARP's predict expects specific input format
-        # SHARP expects disparity_factor as a tensor of shape [B]
-        disparity_factor = torch.tensor([1.0/f_px], device=self.device, dtype=torch.float32)
+        # SHARP expects disparity_factor as normalized focal length (f_px / width)
+        disparity_factor = torch.tensor([f_px / self.cubemap_size], device=self.device, dtype=torch.float32)
         gaussians = self.model(face_batch, disparity_factor=disparity_factor)
 
         return gaussians

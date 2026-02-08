@@ -166,8 +166,8 @@ async def convert_panorama(
     depth_min: float = Query(0.1, ge=0.01),
 
     depth_max: float = Query(100.0, le=1000.0),
-    # SHARP params
-    sharp_refine: bool = Query(False),
+    # SHARP params (enabled by default for maximum quality)
+    sharp_refine: bool = Query(True),
     sharp_projection: str = Query("cubemap"),  # "cubemap" or "icosahedral"
     scale_blend: float = Query(0.5, ge=0.0, le=1.0),
     opacity_blend: float = Query(1.0, ge=0.0, le=1.0)
@@ -276,7 +276,7 @@ async def process_job(
 
     depth_min: float,
     depth_max: float,
-    sharp_refine: bool = False,
+    sharp_refine: bool = True,
     sharp_projection: str = "cubemap",
     scale_blend: float = 0.5,
     opacity_blend: float = 1.0
@@ -450,34 +450,42 @@ async def process_video_job(
                 job.last_updated = time.time()
             
             # ─────────────────────────────────────────────────────────────
-            # PASS 2: Temporal Smoothing + Conversion
+            # PASS 2: Temporal Smoothing + SHARP Refinement + Conversion
             # ─────────────────────────────────────────────────────────────
             manifest = {"fps": fps, "frames": []}
             prev_depth = None
-            
+            prev_ref_opacities = None
+            prev_ref_scales = None
+            prev_ref_colors = None
+
             # Calculate effective alpha (0 = no smoothing, higher = more smoothing)
             # Invert for EMA: alpha=0.7 means 70% new frame, 30% previous
             ema_alpha = 1.0 - temporal_alpha if temporal_alpha > 0 else 1.0
-            
+
+            # Imports for conversion
+            from spag4d.spherical_grid import create_spherical_grid
+            from spag4d.gaussian_converter import equirect_to_gaussians, equirect_to_gaussians_refined
+            from spag4d.splat_writer import save_splat
+
             for i, frame_path in enumerate(frames):
                 job.current_frame = i + 1
                 job.last_updated = time.time()
-                
+
                 # Get depth (move back to GPU)
                 depth = depths[i].to(processor.device)
                 mask = masks[i].to(processor.device) if masks else None
-                
-                # Apply temporal smoothing (EMA)
+
+                # Apply temporal smoothing to depth (EMA)
                 if prev_depth is not None and temporal_alpha > 0:
                     depth = ema_alpha * depth + (1 - ema_alpha) * prev_depth
                 prev_depth = depth.clone()
-                
+
                 # Apply global scale
                 depth = depth * global_scale
-                
+
                 # Use mask from DAP + Sky threshold
-                validity_mask = mask # From batch prediction
-                
+                validity_mask = mask  # From batch prediction
+
                 # Apply sky threshold
                 if sky_threshold > 0:
                     sky_mask = (depth <= sky_threshold).float()
@@ -485,47 +493,86 @@ async def process_video_job(
                         validity_mask = validity_mask * sky_mask
                     else:
                         validity_mask = sky_mask
-                
+
                 # Load image for conversion
                 img = Image.open(frame_path).convert('RGB')
                 img_tensor = torch.from_numpy(np.array(img)).to(processor.device)
-                
+
                 # Create spherical grid
                 H, W = img_tensor.shape[:2]
-                from spag4d.spherical_grid import create_spherical_grid
                 grid = create_spherical_grid(H, W, processor.device, stride=stride)
-                
+
+                # SHARP refinement with temporal smoothing
+                refined_attrs = None
+                if processor.sharp_refiner is not None:
+                    processor.sharp_refiner.load_model()  # no-op if already loaded
+                    img_float = img_tensor.float() / 255.0
+                    raw_attrs = processor.sharp_refiner.refine(img_float, depth)
+
+                    # Temporally smooth SHARP attributes (opacity, scale, color)
+                    ref_op = raw_attrs.opacities
+                    ref_sc = raw_attrs.scales
+                    ref_col = raw_attrs.colors
+
+                    if prev_ref_opacities is not None and temporal_alpha > 0:
+                        ref_op = ema_alpha * ref_op + (1 - ema_alpha) * prev_ref_opacities.to(processor.device)
+                        ref_sc = ema_alpha * ref_sc + (1 - ema_alpha) * prev_ref_scales.to(processor.device)
+                        if ref_col is not None and prev_ref_colors is not None:
+                            ref_col = ema_alpha * ref_col + (1 - ema_alpha) * prev_ref_colors.to(processor.device)
+
+                    prev_ref_opacities = ref_op.cpu().clone()
+                    prev_ref_scales = ref_sc.cpu().clone()
+                    if ref_col is not None:
+                        prev_ref_colors = ref_col.cpu().clone()
+
+                    from spag4d.sharp_refiner import RefinedAttributes
+                    refined_attrs = RefinedAttributes(
+                        opacities=ref_op, scales=ref_sc, colors=ref_col
+                    )
+
                 # Convert to gaussians
-                from spag4d.gaussian_converter import equirect_to_gaussians
-                from spag4d.splat_writer import save_splat
-                
-                gaussians = equirect_to_gaussians(
-                    image=img_tensor,
-                    depth=depth,
-                    grid=grid,
-                    scale_factor=scale_factor,
-                    thickness_ratio=thickness,
-                    depth_min=depth_min,
-                    depth_max=depth_max,
-                    validity_mask=validity_mask
-                )
-                
+                if refined_attrs is not None:
+                    gaussians = equirect_to_gaussians_refined(
+                        image=img_tensor,
+                        depth=depth,
+                        grid=grid,
+                        refined_attrs=refined_attrs,
+                        scale_factor=scale_factor,
+                        thickness_ratio=thickness,
+                        depth_min=depth_min,
+                        depth_max=depth_max,
+                        validity_mask=validity_mask,
+                        scale_blend=0.5,
+                        opacity_blend=1.0,
+                    )
+                else:
+                    gaussians = equirect_to_gaussians(
+                        image=img_tensor,
+                        depth=depth,
+                        grid=grid,
+                        scale_factor=scale_factor,
+                        thickness_ratio=thickness,
+                        depth_min=depth_min,
+                        depth_max=depth_max,
+                        validity_mask=validity_mask,
+                    )
+
                 # Apply stabilization if enabled
                 if vo is not None:
                     # Process frame for visual odometry
                     img_bgr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
                     vo.process_frame(img_bgr)
-                    
+
                     # Get stabilization rotation and transform gaussians
                     R_stab = vo.get_stabilization_rotation()
                     from spag4d.visual_odometry import transform_gaussians
                     gaussians = transform_gaussians(gaussians, R_stab)
-                
+
                 # Save splat
                 base_name = frame_path.stem
                 out_splat = output_dir / f"{base_name}.splat"
                 await run_in_threadpool(save_splat, gaussians, str(out_splat))
-                
+
                 manifest["frames"].append(f"{base_name}.splat")
             
             # Save manifest

@@ -36,8 +36,8 @@ def main():
 @click.option('--quiet', is_flag=True, help='Suppress progress output')
 @click.option('--mock-dap', is_flag=True, help='Use mock DAP model (for testing)')
 # SHARP Options
-@click.option('--sharp-refine/--no-sharp-refine', default=False,
-              help='Use SHARP model for perceptual attribute refinement')
+@click.option('--sharp-refine/--no-sharp-refine', default=True,
+              help='Use SHARP model for perceptual attribute refinement (default: enabled)')
 @click.option('--sharp-model', type=click.Path(exists=True), default=None,
               help='Path to SHARP checkpoint (downloads if not specified)')
 @click.option('--sharp-cubemap-size', type=int, default=1536,
@@ -256,7 +256,20 @@ def serve(port: int, host: str, reload: bool):
 @click.option('--stride', default=4, help='Downsampling factor')
 @click.option('--stabilize', is_flag=True, help='Enable visual odometry stabilization')
 @click.option('--device', default='cuda', help='Device')
-def convert_video(input_video: str, output_dir: str, fps: int, start: float, duration: float, stride: int, stabilize: bool, device: str):
+@click.option('--sharp-refine/--no-sharp-refine', default=True,
+              help='Use SHARP model for perceptual attribute refinement (default: enabled)')
+@click.option('--sharp-cubemap-size', type=int, default=1536,
+              help='Cubemap face size for SHARP (must be multiple of 384)')
+@click.option('--sharp-projection', type=click.Choice(['cubemap', 'icosahedral']),
+              default='cubemap', help='SHARP projection mode')
+@click.option('--scale-blend', type=float, default=0.5,
+              help='Blend factor for SHARP scales (0=geometric only, 1=SHARP only)')
+@click.option('--opacity-blend', type=float, default=1.0,
+              help='Blend factor for SHARP opacities')
+def convert_video(input_video: str, output_dir: str, fps: int, start: float, duration: float,
+                  stride: int, stabilize: bool, device: str, sharp_refine: bool,
+                  sharp_cubemap_size: int, sharp_projection: str,
+                  scale_blend: float, opacity_blend: float):
     """
     Extract frames from 360° video and convert each to Gaussian splat.
     """
@@ -311,8 +324,13 @@ def convert_video(input_video: str, output_dir: str, fps: int, start: float, dur
         click.echo(f"Extracted {len(frames)} frames")
         
         # Convert each frame
-        converter = SPAG4D(device=device)
-        
+        converter = SPAG4D(
+            device=device,
+            use_sharp_refinement=sharp_refine,
+            sharp_cubemap_size=sharp_cubemap_size,
+            sharp_projection_mode=sharp_projection,
+        )
+
         with click.progressbar(frames, label='Converting frames') as bar:
             for frame_path in bar:
                 out_path = output_dir / (frame_path.stem + '.ply')
@@ -321,23 +339,14 @@ def convert_video(input_video: str, output_dir: str, fps: int, start: float, dur
                     if vo:
                         img_bgr = cv2.imread(str(frame_path))
                         vo.process_frame(img_bgr)
-                        # We still run standard conversion, then rotate if writing manually
-                        # But SPAG4D.convert writes to disk. 
-                        # We need to manually handle the pipeline if we want to rotate before save.
-                        # For CLI simplicity, we rely on core.convert but we can't inject rotation easily 
-                        # without refactoring core.convert or duplicating logic here.
-                        #
-                        # TODO: Stabilization requires refactoring core.convert() to accept
-                        # pre-computed gaussians. For now, VO tracking runs but rotation
-                        # is not applied. Use api.py for full stabilization support.
-                        if not quiet:  # Only show warning if not quiet
-                            click.echo("⚠ Note: CLI stabilization tracks camera but doesn't apply rotation. Use web API for full support.", err=True)
 
                     converter.convert(
                         input_path=str(frame_path),
                         output_path=str(out_path),
                         stride=stride,
-                        force_erp=True
+                        force_erp=True,
+                        scale_blend=scale_blend,
+                        opacity_blend=opacity_blend,
                     )
                 except Exception as e:
                     click.echo(f"\n⚠ {frame_path.name}: {e}", err=True)

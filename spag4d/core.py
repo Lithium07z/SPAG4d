@@ -36,27 +36,27 @@ class SPAG4D:
         device: str = "cuda",
         model_path: Optional[str] = None,
         use_mock_dap: bool = False,
-        use_sharp_refinement: bool = False,
+        use_sharp_refinement: bool = True,
         sharp_model_path: Optional[str] = None,
         sharp_cubemap_size: int = 1536,
         sharp_projection_mode: str = "cubemap",  # "cubemap" or "icosahedral"
     ):
         """
         Initialize SPAG4D converter.
-        
+
         Args:
             device: Device for computation ("cuda", "cpu", "mps")
             model_path: Optional explicit path to DAP weights
             use_mock_dap: Use mock DAP model (for testing without weights)
-            use_sharp_refinement: Enable SHARP attribute refinement
+            use_sharp_refinement: Enable SHARP attribute refinement (default: True)
             sharp_model_path: Optional path to SHARP weights
-            sharp_cubemap_size: Cubemap face size for SHARP
+            sharp_cubemap_size: Cubemap face size for SHARP (must be multiple of 384)
             sharp_projection_mode: "cubemap" (6 faces) or "icosahedral" (20 faces)
         """
         self.device = torch.device(
             device if device != "cuda" or torch.cuda.is_available() else "cpu"
         )
-        
+
         # Load DAP model
         if use_mock_dap:
             from .dap_model import MockDAPModel
@@ -64,19 +64,28 @@ class SPAG4D:
         else:
             from .dap_model import DAPModel
             self.dap = DAPModel.load(model_path, device=self.device)
-        
-        # SHARP refinement (optional)
+
+        # SHARP refinement (enabled by default for maximum quality)
         self.sharp_refiner = None
         if use_sharp_refinement:
-            from .sharp_refiner import SHARPRefiner
-            self.sharp_refiner = SHARPRefiner(
-                device=self.device,
-                cubemap_size=sharp_cubemap_size,
-                projection_mode=sharp_projection_mode,
-            )
-            # Preload if path provided, otherwise lazy load
-            if sharp_model_path:
-                self.sharp_refiner.load_model(sharp_model_path)
+            try:
+                from .sharp_refiner import SHARPRefiner
+                self.sharp_refiner = SHARPRefiner(
+                    device=self.device,
+                    cubemap_size=sharp_cubemap_size,
+                    refine_colors=True,
+                    projection_mode=sharp_projection_mode,
+                )
+                # Preload if path provided, otherwise lazy load
+                if sharp_model_path:
+                    self.sharp_refiner.load_model(sharp_model_path)
+            except ImportError:
+                import warnings
+                warnings.warn(
+                    "SHARP not available. Install with: "
+                    "pip install git+https://github.com/apple/ml-sharp.git "
+                    "Falling back to geometric-only Gaussians."
+                )
         self.sharp_cubemap_size = sharp_cubemap_size
         self.sharp_projection_mode = sharp_projection_mode
         
@@ -190,17 +199,22 @@ class SPAG4D:
             # Combine learned mask with sky threshold
             validity_mask = validity_mask * (depth <= sky_threshold).float()
         
-        # SHARP Refinement
+        # SHARP Refinement (enabled by default when refiner is available)
         refined_attrs = None
-        use_sharp = kwargs.get('use_sharp_refinement', False)
-        
+        use_sharp = kwargs.get('use_sharp_refinement', self.sharp_refiner is not None)
+
         if use_sharp:
             if self.sharp_refiner is None:
-                from .sharp_refiner import SHARPRefiner
-                self.sharp_refiner = SHARPRefiner(
-                    device=self.device,
-                    cubemap_size=self.sharp_cubemap_size,
-                )
+                try:
+                    from .sharp_refiner import SHARPRefiner
+                    self.sharp_refiner = SHARPRefiner(
+                        device=self.device,
+                        cubemap_size=self.sharp_cubemap_size,
+                        refine_colors=True,
+                        projection_mode=self.sharp_projection_mode,
+                    )
+                except ImportError:
+                    use_sharp = False
             
             # Ensure model is loaded (no-op if already loaded)
             self.sharp_refiner.load_model()
