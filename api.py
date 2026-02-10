@@ -170,7 +170,9 @@ async def convert_panorama(
     sharp_refine: bool = Query(True),
     sharp_projection: str = Query("cubemap"),  # "cubemap" or "icosahedral"
     scale_blend: float = Query(0.5, ge=0.0, le=1.0),
-    opacity_blend: float = Query(1.0, ge=0.0, le=1.0)
+    opacity_blend: float = Query(1.0, ge=0.0, le=1.0),
+    sharp_cubemap_size: int = Query(1536),
+    sky_threshold: float = Query(80.0)
 ):
     """
     Convert uploaded panorama to Gaussian splat.
@@ -192,7 +194,10 @@ async def convert_panorama(
         "sharp_refine": sharp_refine,
         "sharp_projection": sharp_projection,
         "scale_blend": scale_blend,
-        "opacity_blend": opacity_blend
+        "scale_blend": scale_blend,
+        "opacity_blend": opacity_blend,
+        "sharp_cubemap_size": sharp_cubemap_size,
+        "sky_threshold": sky_threshold
     }
     
     # Determine file extension
@@ -211,7 +216,8 @@ async def convert_panorama(
     # Queue processing (non-blocking)
     asyncio.create_task(process_job(
         job, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
-        sharp_refine, sharp_projection, scale_blend, opacity_blend
+        sharp_refine, sharp_projection, scale_blend, opacity_blend,
+        sharp_cubemap_size, sky_threshold
     ))
     
     return JSONResponse({
@@ -236,7 +242,9 @@ async def convert_video(
     temporal_alpha: float = Query(0.3, ge=0.0, le=1.0),
     stabilize_video: bool = Query(False),
     scale_blend: float = Query(0.5, ge=0.0, le=1.0),
-    opacity_blend: float = Query(1.0, ge=0.0, le=1.0)
+    opacity_blend: float = Query(1.0, ge=0.0, le=1.0),
+    sharp_cubemap_size: int = Query(1536),
+    sky_threshold: float = Query(80.0)
 ):
     """Convert uploaded 360 video to sequence of Gaussian splats."""
     content = await file.read()
@@ -258,8 +266,9 @@ async def convert_video(
     
     asyncio.create_task(process_video_job(
         job, fps, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
-        80.0, # Default sky threshold
-        start_time, duration, temporal_alpha, stabilize_video, scale_blend, opacity_blend
+        sky_threshold, # Dynamic sky threshold
+        start_time, duration, temporal_alpha, stabilize_video, scale_blend, opacity_blend,
+        sharp_cubemap_size
     ))
     
     return JSONResponse({
@@ -281,7 +290,9 @@ async def process_job(
     sharp_refine: bool = True,
     sharp_projection: str = "cubemap",
     scale_blend: float = 0.5,
-    opacity_blend: float = 1.0
+    opacity_blend: float = 1.0,
+    sharp_cubemap_size: int = 1536,
+    sky_threshold: float = 80.0
 ):
     """Process conversion job with GPU semaphore."""
     global processor
@@ -326,7 +337,9 @@ async def process_job(
                 depth_preview_path=str(job.depth_preview_path),
                 use_sharp_refinement=sharp_refine,
                 scale_blend=scale_blend,
-                opacity_blend=opacity_blend
+                opacity_blend=opacity_blend,
+                sharp_cubemap_size=sharp_cubemap_size,
+                sky_threshold=sky_threshold
             )
             
             # Generate web preview (low-res SPLAT)
@@ -343,7 +356,9 @@ async def process_job(
                 output_format="splat",
                 use_sharp_refinement=sharp_refine, # Apply to preview too? keeping consistent
                 scale_blend=scale_blend,
-                opacity_blend=opacity_blend
+                opacity_blend=opacity_blend,
+                sharp_cubemap_size=sharp_cubemap_size,
+                sky_threshold=sky_threshold
             )
             
             # Also generate full SPLAT for download
@@ -386,6 +401,7 @@ async def process_video_job(
     stabilize_video: bool = False,  # Enable visual odometry stabilization
     scale_blend: float = 0.5,
     opacity_blend: float = 1.0,
+    sharp_cubemap_size: int = 1536,
 ):
     """Process video conversion with batched inference, temporal smoothing, and stabilization."""
     global processor

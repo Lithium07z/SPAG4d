@@ -178,17 +178,29 @@
                         </div>
                     </div>
 
+                    <div class="param-group"
+                        title="Distance in meters beyond which points are removed. &#10;Use to cut out sky artifacts in open scenes.">
+                        <label for="sky-threshold">Sky Cutoff (m)</label>
+                        <input type="number" id="sky-threshold" value="80" min="0" max="1000" step="10">
+                    </div>
+
                     <!-- SHARP Params -->
                     <div class="param-group" style="border-left: 1px solid #444; padding-left: 10px; margin-left: 5px;"
                         title="Perceptual refinement using ML-SHARP. Requires download (~3GB).">
                         <label for="sharp-refine">Magic Fix (SHARP)</label>
-                        <input type="checkbox" id="sharp-refine" style="width: 18px; height: 18px;">
+                        <input type="checkbox" id="sharp-refine" checked style="width: 18px; height: 18px;">
                     </div>
 
                     <div class="param-group" id="sharp-blend-group" style="display: none; opacity: 0.5;">
                         <label for="scale-blend">Detail Blend</label>
                         <input type="range" id="scale-blend" min="0" max="1" step="0.1" value="0.5"
                             title="Blend geometric vs learned scales (0=Geo, 1=Learned)">
+                    </div>
+
+                    <div class="param-group" id="sharp-opacity-group" style="display: none; opacity: 0.5;">
+                        <label for="opacity-blend">Opacity Blend</label>
+                        <input type="range" id="opacity-blend" min="0" max="1" step="0.1" value="1.0"
+                            title="Blend geometric vs learned opacity (0=Geo, 1=Learned)">
                     </div>
 
                     <div class="param-group" id="sharp-projection-group" style="display: none; opacity: 0.5;"
@@ -201,55 +213,68 @@
                     </div>
                 </div>
 
-                <!-- Video Parameters (Hidden by default) -->
-                <div class="params-row" id="video-params"
-                    style="display: none; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
-                    <div class="param-group" title="Frames Per Second to extract. Higher = smoother but slower.">
-                        <label for="fps">FPS</label>
-                        <input type="number" id="fps" value="10" min="1" max="60" step="1">
-                    </div>
-                    <div class="param-group" title="Start time in seconds">
-                        <label for="video-start">Start (s)</label>
-                        <input type="number" id="video-start" value="0.0" min="0" step="0.1" style="width: 60px;">
-                    </div>
-                    <div class="param-group" title="Duration in seconds. Leave empty for full video.">
-                        <label for="video-duration">Duration (s)</label>
-                        <input type="number" id="video-duration" value="" min="0.1" step="0.1" placeholder="All"
-                            style="width: 60px;">
-                    </div>
-                    <div class="param-group"
-                        title="Temporal smoothing strength. 0 = off, higher = smoother (may cause ghosting).">
-                        <label for="temporal-alpha">Smoothing</label>
-                        <input type="range" id="temporal-alpha" value="0.3" min="0" max="0.8" step="0.1"
-                            style="width: 60px;">
-                    </div>
-                    <div class="param-group" title="Stabilize camera rotation using visual odometry.">
-                        <label for="stabilize-video">Stabilize</label>
-                        <input type="checkbox" id="stabilize-video" style="width: 18px; height: 18px;">
-                    </div>
-                    <div class="param-group" style="flex: 1; align-items: flex-start; justify-content: center;">
-                        <span class="panel-hint">Video Mode: 4D Output</span>
-                    </div>
-                </div>
-                <div class="params-row" id="video-info" style="display: none; padding-top: 0; min-height: 0;">
-                    <div class="param-group" style="width: 100%; text-align: center; color: #aaa; font-size: 0.85em;">
-                        <span id="video-metadata">Detected: -</span>
-                    </div>
+                <div class="param-group" id="sharp-resolution-group" style="display: none; opacity: 0.5;"
+                    title="SHARP processing resolution. &#10;Higher = better quality but uses more VRAM and time. &#10;1536 is default.">
+                    <label for="sharp-cubemap-size">Res</label>
+                    <select id="sharp-cubemap-size" style="width: 85px;">
+                        <option value="768">768 (Fast)</option>
+                        <option value="1536" selected>1536 (Def)</option>
+                        <option value="1920">1920 (High)</option>
+                        <option value="2304">2304 (Ultra)</option>
+                        <option value="3072">3072 (Max)</option>
+                    </select>
                 </div>
             </div>
 
-            <!-- Status Bar -->
-            <div class="status-bar">
-                <div class="status-left">
-                    <span id="status-text" class="status-text">Ready</span>
-                    <span id="progress-text" class="progress-text"></span>
+            <!-- Video Parameters (Hidden by default) -->
+            <div class="params-row" id="video-params"
+                style="display: none; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
+                <div class="param-group" title="Frames Per Second to extract. Higher = smoother but slower.">
+                    <label for="fps">FPS</label>
+                    <input type="number" id="fps" value="10" min="1" max="60" step="1">
                 </div>
-                <div class="status-right">
-                    <span id="gpu-status" class="gpu-status">●</span>
-                    <span>GPU</span>
+                <div class="param-group" title="Start time in seconds">
+                    <label for="video-start">Start (s)</label>
+                    <input type="number" id="video-start" value="0.0" min="0" step="0.1" style="width: 60px;">
+                </div>
+                <div class="param-group" title="Duration in seconds. Leave empty for full video.">
+                    <label for="video-duration">Duration (s)</label>
+                    <input type="number" id="video-duration" value="" min="0.1" step="0.1" placeholder="All"
+                        style="width: 60px;">
+                </div>
+                <div class="param-group"
+                    title="Temporal smoothing strength. 0 = off, higher = smoother (may cause ghosting).">
+                    <label for="temporal-alpha">Smoothing</label>
+                    <input type="range" id="temporal-alpha" value="0.3" min="0" max="0.8" step="0.1"
+                        style="width: 60px;">
+                </div>
+                <div class="param-group" title="Stabilize camera rotation using visual odometry.">
+                    <label for="stabilize-video">Stabilize</label>
+                    <input type="checkbox" id="stabilize-video" style="width: 18px; height: 18px;">
+                </div>
+                <div class="param-group" style="flex: 1; align-items: flex-start; justify-content: center;">
+                    <span class="panel-hint">Video Mode: 4D Output</span>
                 </div>
             </div>
-        </main>
+            <div class="params-row" id="video-info" style="display: none; padding-top: 0; min-height: 0;">
+                <div class="param-group" style="width: 100%; text-align: center; color: #aaa; font-size: 0.85em;">
+                    <span id="video-metadata">Detected: -</span>
+                </div>
+            </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="status-left">
+            <span id="status-text" class="status-text">Ready</span>
+            <span id="progress-text" class="progress-text"></span>
+        </div>
+        <div class="status-right">
+            <span id="gpu-status" class="gpu-status">●</span>
+            <span>GPU</span>
+        </div>
+    </div>
+    </main>
     </div>
 
     <script src="js/pano-viewer.js?v=2"></script>

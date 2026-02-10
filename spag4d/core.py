@@ -204,15 +204,25 @@ class SPAG4D:
         use_sharp = kwargs.get('use_sharp_refinement', self.sharp_refiner is not None)
 
         if use_sharp:
-            if self.sharp_refiner is None:
+            # Check if resolution changed
+            current_size = self.sharp_refiner.cubemap_size if self.sharp_refiner else 0
+            target_size = kwargs.get('sharp_cubemap_size', self.sharp_cubemap_size)
+            
+            # Re-instantiate if needed (or if not yet created)
+            if self.sharp_refiner is None or current_size != target_size:
                 try:
                     from .sharp_refiner import SHARPRefiner
+                    if self.sharp_refiner:
+                        print(f"Switching SHARP resolution: {current_size} -> {target_size}")
+                    
                     self.sharp_refiner = SHARPRefiner(
                         device=self.device,
-                        cubemap_size=self.sharp_cubemap_size,
+                        cubemap_size=target_size,
                         refine_colors=True,
                         projection_mode=self.sharp_projection_mode,
                     )
+                    # Update default size
+                    self.sharp_cubemap_size = target_size
                 except ImportError:
                     use_sharp = False
             

@@ -46,23 +46,24 @@ class SPAG4DApp {
         // SHARP Elements
         this.sharpRefineInput = document.getElementById('sharp-refine');
         this.scaleBlendInput = document.getElementById('scale-blend');
+        this.opacityBlendInput = document.getElementById('opacity-blend');
         this.sharpBlendGroup = document.getElementById('sharp-blend-group');
+        this.sharpOpacityGroup = document.getElementById('sharp-opacity-group');
         this.sharpProjectionInput = document.getElementById('sharp-projection');
         this.sharpProjectionGroup = document.getElementById('sharp-projection-group');
+        this.sharpCubemapSizeInput = document.getElementById('sharp-cubemap-size');
+        this.sharpResolutionGroup = document.getElementById('sharp-resolution-group');
+        this.skyThresholdInput = document.getElementById('sky-threshold');
 
         if (this.sharpRefineInput) {
-            this.sharpRefineInput.addEventListener('change', () => {
-                const checked = this.sharpRefineInput.checked;
-                if (this.sharpBlendGroup) {
-                    this.sharpBlendGroup.style.display = checked ? 'flex' : 'none';
-                    this.sharpBlendGroup.style.opacity = checked ? '1' : '0.5';
-                }
-                if (this.sharpProjectionGroup) {
-                    this.sharpProjectionGroup.style.display = checked ? 'flex' : 'none';
-                    this.sharpProjectionGroup.style.opacity = checked ? '1' : '0.5';
-                }
-            });
+            this.sharpRefineInput.addEventListener('change', () => this.updateSharpVisibility());
+
+            // Initialize visibility based on default state
+            this.updateSharpVisibility();
         }
+
+
+
 
         // Event Listeners
         this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
@@ -117,6 +118,28 @@ class SPAG4DApp {
 
         // Preload test image if available
         this.preloadTestImage();
+    }
+
+    updateSharpVisibility() {
+        if (!this.sharpRefineInput) return;
+
+        const checked = this.sharpRefineInput.checked;
+        if (this.sharpBlendGroup) {
+            this.sharpBlendGroup.style.display = checked ? 'flex' : 'none';
+            this.sharpBlendGroup.style.opacity = checked ? '1' : '0.5';
+        }
+        if (this.sharpOpacityGroup) {
+            this.sharpOpacityGroup.style.display = checked ? 'flex' : 'none';
+            this.sharpOpacityGroup.style.opacity = checked ? '1' : '0.5';
+        }
+        if (this.sharpProjectionGroup) {
+            this.sharpProjectionGroup.style.display = checked ? 'flex' : 'none';
+            this.sharpProjectionGroup.style.opacity = checked ? '1' : '0.5';
+        }
+        if (this.sharpResolutionGroup) {
+            this.sharpResolutionGroup.style.display = checked ? 'flex' : 'none';
+            this.sharpResolutionGroup.style.opacity = checked ? '1' : '0.5';
+        }
     }
 
     setupTabs() {
@@ -303,7 +326,9 @@ class SPAG4DApp {
             sharp_refine: this.sharpRefineInput ? this.sharpRefineInput.checked : false,
             sharp_projection: this.sharpProjectionInput ? this.sharpProjectionInput.value : 'cubemap',
             scale_blend: this.scaleBlendInput ? this.scaleBlendInput.value : 0.5,
-            opacity_blend: 1.0 // Fixed for now
+            opacity_blend: this.opacityBlendInput ? this.opacityBlendInput.value : 1.0,
+            sharp_cubemap_size: this.sharpCubemapSizeInput ? this.sharpCubemapSizeInput.value : 1536,
+            sky_threshold: this.skyThresholdInput ? this.skyThresholdInput.value : 80.0
         });
 
         try {
@@ -313,7 +338,12 @@ class SPAG4DApp {
                 params.append('fps', this.fpsInput.value);
                 params.append('start_time', this.videoStartInput.value);
                 params.append('temporal_alpha', this.temporalAlphaInput.value);
+                params.append('temporal_alpha', this.temporalAlphaInput.value);
                 params.append('stabilize_video', this.stabilizeVideoInput.checked);
+                params.append('scale_blend', this.scaleBlendInput ? this.scaleBlendInput.value : 0.5);
+                params.append('opacity_blend', this.opacityBlendInput ? this.opacityBlendInput.value : 1.0);
+                params.append('sharp_cubemap_size', this.sharpCubemapSizeInput ? this.sharpCubemapSizeInput.value : 1536);
+                params.append('sky_threshold', this.skyThresholdInput ? this.skyThresholdInput.value : 80.0);
                 if (this.videoDurationInput.value) {
                     params.append('duration', this.videoDurationInput.value);
                 }
