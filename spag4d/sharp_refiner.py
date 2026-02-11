@@ -33,6 +33,9 @@ class SHARPRefiner:
 
     SHARP_WEIGHTS_URL = "https://ml-site.cdn-apple.com/models/sharp/sharp_2572gikvuh.pt"
     CACHE_DIR = Path.home() / ".cache" / "spag4d" / "sharp"
+    # SHARP's SPN encoder is designed for 1536×1536 input (patch_size=384, pyramid=4x).
+    # Cubemap faces are resized to this before inference regardless of cubemap_size.
+    SHARP_INPUT_SIZE = 1536
 
     def __init__(
         self,
@@ -119,8 +122,10 @@ class SHARPRefiner:
             params.max_scale = 10.0
             params.min_scale = 0.0
 
-            # Color space: linearRGB for accurate blending
-            params.color_space = "linearRGB"
+            # Color space: sRGB to match source image and output pipeline.
+            # Using linearRGB here would cause sRGB2linearRGB() conversion inside
+            # SHARP's composer, producing darker/warmer colors when later treated as sRGB.
+            params.color_space = "sRGB"
 
             # Initializer: maximum quality extraction
             params.initializer.scale_factor = 1.0
@@ -132,7 +137,7 @@ class SHARPRefiner:
             # Delta factors: fine-tune Gaussian attribute corrections
             params.delta_factor.xy = 0.001
             params.delta_factor.z = 0.001
-            params.delta_factor.color = 0.1
+            params.delta_factor.color = 1.0  # SHARP recommends 1.0 for sRGB (was 0.1 for linearRGB)
             params.delta_factor.opacity = 1.0
             params.delta_factor.scale = 1.0
             params.delta_factor.quaternion = 1.0
@@ -256,7 +261,8 @@ class SHARPRefiner:
             gaussians = self._predict_face(face_tensor, f_px)
 
             # Extract attributes and reshape to face grid
-            grid_size = self.cubemap_size // 2  # SHARP outputs at half resolution
+            # Grid size is based on SHARP's native input size (1536), not cubemap_size
+            grid_size = self.SHARP_INPUT_SIZE // 2  # SHARP outputs at half resolution
 
             opacity = self._extract_opacity_map(gaussians, grid_size)
             scale = self._extract_scale_map(gaussians, grid_size)
@@ -273,8 +279,9 @@ class SHARPRefiner:
             if self.device.type == 'cuda':
                 torch.cuda.empty_cache()
 
-        # Upsample to match cubemap_size if needed (SHARP outputs half res)
-        grid_size = self.cubemap_size // 2
+        # Upsample SHARP output maps to match cubemap_size for reprojection.
+        # SHARP outputs at half its native input resolution (768×768).
+        grid_size = self.SHARP_INPUT_SIZE // 2
         if grid_size != self.cubemap_size:
             face_opacities = [
                 F.interpolate(
@@ -326,7 +333,20 @@ class SHARPRefiner:
         # Add batch dim and run predictor
         face_batch = face.unsqueeze(0).permute(0, 3, 1, 2)  # [1, 3, H, W]
 
-        # SHARP expects disparity_factor as normalized focal length (f_px / width)
+        # Resize to SHARP's native input size if needed.
+        # The SPN encoder's sliding-window patch splitting (384px patches with
+        # overlap) only tiles correctly at 1536×1536. Other sizes cause tensor
+        # size mismatches in torch.cat during patch concatenation.
+        if face_batch.shape[-1] != self.SHARP_INPUT_SIZE:
+            face_batch = F.interpolate(
+                face_batch,
+                size=(self.SHARP_INPUT_SIZE, self.SHARP_INPUT_SIZE),
+                mode='bilinear',
+                align_corners=False,
+            )
+
+        # SHARP expects disparity_factor as normalized focal length (f_px / width).
+        # This is FOV-dependent (= 1 / (2*tan(fov/2))), so it's invariant to resize.
         disparity_factor = torch.tensor([f_px / self.cubemap_size], device=self.device, dtype=torch.float32)
         gaussians = self.model(face_batch, disparity_factor=disparity_factor)
 

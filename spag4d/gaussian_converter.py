@@ -196,8 +196,9 @@ def equirect_to_gaussians_refined(
     pole_rows: int = 3,
     default_opacity: float = 0.95,
     validity_mask: Optional[torch.Tensor] = None,
-    scale_blend: float = 0.5,
+    scale_blend: float = 0.8,
     opacity_blend: float = 1.0,
+    color_blend: float = 0.5,
 ) -> dict:
     """
     Convert ERP panorama to Gaussians with optional SHARP refinements.
@@ -317,9 +318,12 @@ def equirect_to_gaussians_refined(
             scale_blend * base_gaussians['scales'] * scale_mult
         )
 
-    # Refine Colors
-    if refined_attrs.colors is not None:
-        ref_colors_flat = sample_map(refined_attrs.colors, 3)
-        base_gaussians['colors'] = ref_colors_flat.clamp(0, 1)
+    # Refine Colors (blend with source to preserve fidelity)
+    if refined_attrs.colors is not None and color_blend > 0:
+        ref_colors_flat = sample_map(refined_attrs.colors, 3).clamp(0, 1)
+        base_gaussians['colors'] = (
+            (1 - color_blend) * base_gaussians['colors'] +
+            color_blend * ref_colors_flat
+        )
 
     return base_gaussians

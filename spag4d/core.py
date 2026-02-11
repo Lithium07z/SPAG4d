@@ -252,8 +252,9 @@ class SPAG4D:
                 depth_min=depth_min,
                 depth_max=depth_max,
                 validity_mask=validity_mask,
-                scale_blend=kwargs.get('scale_blend', 0.5),
+                scale_blend=kwargs.get('scale_blend', 0.8),
                 opacity_blend=kwargs.get('opacity_blend', 1.0),
+                color_blend=kwargs.get('color_blend', 0.5),
             )
         else:
             gaussians = equirect_to_gaussians(

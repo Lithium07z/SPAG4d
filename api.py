@@ -169,7 +169,8 @@ async def convert_panorama(
     # SHARP params (enabled by default for maximum quality)
     sharp_refine: bool = Query(True),
     sharp_projection: str = Query("cubemap"),  # "cubemap" or "icosahedral"
-    scale_blend: float = Query(0.5, ge=0.0, le=1.0),
+    scale_blend: float = Query(0.8, ge=0.0, le=1.0),
+    color_blend: float = Query(0.5, ge=0.0, le=1.0),
     opacity_blend: float = Query(1.0, ge=0.0, le=1.0),
     sharp_cubemap_size: int = Query(1536),
     sky_threshold: float = Query(80.0)
@@ -194,7 +195,7 @@ async def convert_panorama(
         "sharp_refine": sharp_refine,
         "sharp_projection": sharp_projection,
         "scale_blend": scale_blend,
-        "scale_blend": scale_blend,
+        "color_blend": color_blend,
         "opacity_blend": opacity_blend,
         "sharp_cubemap_size": sharp_cubemap_size,
         "sky_threshold": sky_threshold
@@ -217,7 +218,7 @@ async def convert_panorama(
     asyncio.create_task(process_job(
         job, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
         sharp_refine, sharp_projection, scale_blend, opacity_blend,
-        sharp_cubemap_size, sky_threshold
+        sharp_cubemap_size, sky_threshold, color_blend=color_blend
     ))
     
     return JSONResponse({
@@ -241,7 +242,8 @@ async def convert_video(
     duration: Optional[float] = Query(None, gt=0.0),
     temporal_alpha: float = Query(0.3, ge=0.0, le=1.0),
     stabilize_video: bool = Query(False),
-    scale_blend: float = Query(0.5, ge=0.0, le=1.0),
+    scale_blend: float = Query(0.8, ge=0.0, le=1.0),
+    color_blend: float = Query(0.5, ge=0.0, le=1.0),
     opacity_blend: float = Query(1.0, ge=0.0, le=1.0),
     sharp_cubemap_size: int = Query(1536),
     sky_threshold: float = Query(80.0)
@@ -289,10 +291,11 @@ async def process_job(
     depth_max: float,
     sharp_refine: bool = True,
     sharp_projection: str = "cubemap",
-    scale_blend: float = 0.5,
+    scale_blend: float = 0.8,
     opacity_blend: float = 1.0,
     sharp_cubemap_size: int = 1536,
-    sky_threshold: float = 80.0
+    sky_threshold: float = 80.0,
+    color_blend: float = 0.5
 ):
     """Process conversion job with GPU semaphore."""
     global processor
@@ -310,13 +313,13 @@ async def process_job(
             
             effective_stride = stride
             if width > 6000:
-                # 6K+ images: force stride 8
-                effective_stride = max(stride, 8)
-                print(f"⚠️ High-res image ({width}x{height}), using stride={effective_stride} to prevent OOM")
-            elif width > 4096:
-                # 4K-6K images: minimum stride 4
+                # 6K+ images: minimum stride 4 (DAP input is now capped at 4096px)
                 effective_stride = max(stride, 4)
-                print(f"⚠️ Large image ({width}x{height}), using stride={effective_stride} to prevent OOM")
+                print(f"⚠️ High-res image ({width}x{height}), using stride={effective_stride}")
+            elif width > 4096:
+                # 4K-6K images: minimum stride 2
+                effective_stride = max(stride, 2)
+                print(f"⚠️ Large image ({width}x{height}), using stride={effective_stride}")
             
             # Store adjusted stride in params for user feedback
             if effective_stride != stride:
@@ -338,6 +341,7 @@ async def process_job(
                 use_sharp_refinement=sharp_refine,
                 scale_blend=scale_blend,
                 opacity_blend=opacity_blend,
+                color_blend=color_blend,
                 sharp_cubemap_size=sharp_cubemap_size,
                 sky_threshold=sky_threshold
             )
@@ -354,9 +358,10 @@ async def process_job(
                 depth_min=depth_min,
                 depth_max=depth_max,
                 output_format="splat",
-                use_sharp_refinement=sharp_refine, # Apply to preview too? keeping consistent
+                use_sharp_refinement=sharp_refine,
                 scale_blend=scale_blend,
                 opacity_blend=opacity_blend,
+                color_blend=color_blend,
                 sharp_cubemap_size=sharp_cubemap_size,
                 sky_threshold=sky_threshold
             )

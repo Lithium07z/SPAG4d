@@ -53,6 +53,8 @@ class SPAG4DApp {
         this.sharpProjectionGroup = document.getElementById('sharp-projection-group');
         this.sharpCubemapSizeInput = document.getElementById('sharp-cubemap-size');
         this.sharpResolutionGroup = document.getElementById('sharp-resolution-group');
+        this.colorBlendInput = document.getElementById('color-blend');
+        this.sharpColorGroup = document.getElementById('sharp-color-group');
         this.skyThresholdInput = document.getElementById('sky-threshold');
 
         if (this.sharpRefineInput) {
@@ -139,6 +141,10 @@ class SPAG4DApp {
         if (this.sharpResolutionGroup) {
             this.sharpResolutionGroup.style.display = checked ? 'flex' : 'none';
             this.sharpResolutionGroup.style.opacity = checked ? '1' : '0.5';
+        }
+        if (this.sharpColorGroup) {
+            this.sharpColorGroup.style.display = checked ? 'flex' : 'none';
+            this.sharpColorGroup.style.opacity = checked ? '1' : '0.5';
         }
     }
 
@@ -328,7 +334,8 @@ class SPAG4DApp {
             scale_blend: this.scaleBlendInput ? this.scaleBlendInput.value : 0.5,
             opacity_blend: this.opacityBlendInput ? this.opacityBlendInput.value : 1.0,
             sharp_cubemap_size: this.sharpCubemapSizeInput ? this.sharpCubemapSizeInput.value : 1536,
-            sky_threshold: this.skyThresholdInput ? this.skyThresholdInput.value : 80.0
+            sky_threshold: this.skyThresholdInput ? this.skyThresholdInput.value : 80.0,
+            color_blend: this.colorBlendInput ? this.colorBlendInput.value : 0.5
         });
 
         try {
@@ -459,6 +466,9 @@ class SPAG4DApp {
                     const tabDepth = document.getElementById('tab-depth');
                     if (tabDepth) tabDepth.disabled = false;
                 }
+
+                // Re-enable convert button so user can re-convert with different params
+                this.convertBtn.disabled = false;
 
             } else if (status.status === 'error') {
                 clearInterval(this.pollInterval);

@@ -201,6 +201,21 @@ class DAPModel:
         std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
         x = (x - mean) / std
         
+        # Cap input resolution to prevent OOM on very large images (e.g. 8192×4096).
+        # DAP's DPT head uses dense convolutions — memory scales quadratically with resolution.
+        # Downsample before inference, upsample depth output to original size afterwards.
+        MAX_INPUT_WIDTH = 4096
+        did_downscale = False
+        if W > MAX_INPUT_WIDTH:
+            scale = MAX_INPUT_WIDTH / W
+            new_H = int(H * scale)
+            new_W = MAX_INPUT_WIDTH
+            # Ensure even dimensions
+            new_H = new_H - (new_H % 2)
+            x = F.interpolate(x, size=(new_H, new_W), mode='bilinear', align_corners=True)
+            did_downscale = True
+            print(f"[DAP] Downscaled input {W}×{H} → {new_W}×{new_H} for inference")
+
         # Run model with OOM fallback
         try:
             output = self.model(x)

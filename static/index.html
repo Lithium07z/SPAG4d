@@ -81,22 +81,88 @@
 
             <!-- Help Panel (Hidden by default) -->
             <div id="help-panel" class="help-panel">
-                <h3>📋 Quick Start Workflow</h3>
+                <h3>📋 Workflow</h3>
                 <ol>
-                    <li><strong>Upload</strong> a 360° equirectangular image (JPG/PNG) or video (MP4)</li>
-                    <li><strong>Adjust Parameters:</strong>
-                        <em>Stride</em> (1=max quality, 8=fast preview),
-                        <em>Scale</em> (splat size),
-                        <em>Depth Range</em> (clip distant objects)
-                    </li>
-                    <li>Click <strong>Convert</strong> to generate the 3D Gaussian Splat</li>
-                    <li><strong>Preview</strong> the result in the 3DGS viewer (WASD + Mouse to fly, Scroll to zoom)
-                    </li>
-                    <li><strong>Download</strong> as PLY (for editors) or SPLAT (for web viewers)</li>
+                    <li><strong>Upload</strong> a 2:1 equirectangular panorama (JPG/PNG) or 360° video (MP4)</li>
+                    <li><strong>Adjust</strong> parameters below (defaults work well for most scenes)</li>
+                    <li><strong>Convert</strong> — depth estimation runs first, then Gaussian generation</li>
+                    <li><strong>Preview</strong> in the 3D viewer: WASD to fly, mouse to look, scroll to zoom</li>
+                    <li><strong>Download</strong> as PLY (editors like Blender) or SPLAT (web viewers)</li>
                 </ol>
+
+                <h3>⚙️ Geometric Parameters</h3>
+                <dl class="help-params">
+                    <dt>Stride</dt>
+                    <dd>Pixel sampling rate. <strong>1</strong> = one Gaussian per pixel (max quality, slow).
+                        <strong>4–8</strong> = faster previews. Start with 4, use 1–2 for finals.</dd>
+
+                    <dt>Scale</dt>
+                    <dd>Size multiplier for each Gaussian splat. Increase (1.5–2.0) to fill holes in sparse areas.
+                        Decrease (0.8–1.2) for sharper detail.</dd>
+
+                    <dt>Thickness</dt>
+                    <dd>Radial thickness of splats (0 = flat discs, 0.5 = spheres). Low values (0.05–0.1) work best for
+                        most scenes. Increase for volumetric effects like fog.</dd>
+
+                    <dt>Depth Scale</dt>
+                    <dd>Global depth multiplier. If the world feels too compressed or stretched, adjust this. Usually
+                        1.0 is correct with DAP.</dd>
+
+                    <dt>Depth Range</dt>
+                    <dd>Valid depth in meters. Points outside this range are clipped. Reduce max to remove distant sky
+                        artifacts.</dd>
+
+                    <dt>Sky Cutoff</dt>
+                    <dd>Distance (meters) beyond which points are removed. Lower values (30–50) aggressively clean sky.
+                        Higher values (100+) preserve distant scenery.</dd>
+                </dl>
+
+                <h3>✨ Magic Fix (SHARP) Parameters</h3>
+                <dl class="help-params">
+                    <dt>Magic Fix</dt>
+                    <dd>Enables ML-SHARP perceptual refinement. Downloads ~3GB model on first use. Significantly
+                        improves opacity, scale, and color accuracy.</dd>
+
+                    <dt>Detail Blend</dt>
+                    <dd>Blends geometric vs. SHARP-learned scales (0 = pure geometric, 1 = pure SHARP). Higher values
+                        (0.7–1.0) trust SHARP's scale predictions for tighter splats.</dd>
+
+                    <dt>Opacity Blend</dt>
+                    <dd>Blends geometric vs. SHARP-learned opacity (0 = uniform, 1 = SHARP). Keep at 1.0 for best
+                        results — SHARP's opacity map removes floaters.</dd>
+
+                    <dt>Color Blend</dt>
+                    <dd>Blends source pixel colors vs. SHARP-refined colors (0 = source only, 1 = SHARP only). 0.3–0.5
+                        is safe. Higher values use SHARP's DINOv2-derived colors for semantic refinement.</dd>
+
+                    <dt>Proj</dt>
+                    <dd>Projection mode. <strong>Cube (6)</strong> = faster, 6-face cubemap. <strong>Icosa (20)</strong>
+                        = 20 tangent faces, less distortion, better pole quality.</dd>
+
+                    <dt>Res</dt>
+                    <dd>SHARP processing resolution per face. Higher = better detail but more VRAM/time. 1536 is
+                        default. 2304+ for large, detail-rich scenes.</dd>
+                </dl>
+
+                <h3>🎬 Video Parameters</h3>
+                <dl class="help-params">
+                    <dt>FPS</dt>
+                    <dd>Frames per second to extract from video. 10 FPS is a good starting point. Higher = smoother but
+                        more output files.</dd>
+
+                    <dt>Smoothing</dt>
+                    <dd>Temporal alpha for depth consistency across frames. 0 = no smoothing, 0.3+ reduces flicker but
+                        may cause ghosting on fast motion.</dd>
+
+                    <dt>Stabilize</dt>
+                    <dd>Compensates for camera rotation between frames using visual odometry. Useful for handheld 360°
+                        footage.</dd>
+                </dl>
+
                 <div class="tip">
-                    💡 <strong>Video Mode:</strong> Use FPS to control extraction rate, Smoothing to reduce flicker,
-                    and Stabilize to compensate for camera rotation.
+                    💡 <strong>Quick Tips:</strong> For indoor scenes, reduce Sky Cutoff to 30m. For landscapes, use
+                    stride 1–2 with Magic Fix on for best results. If colors look off, adjust Color Blend toward 0
+                    (source).
                 </div>
             </div>
 
@@ -193,7 +259,7 @@
 
                     <div class="param-group" id="sharp-blend-group" style="display: none; opacity: 0.5;">
                         <label for="scale-blend">Detail Blend</label>
-                        <input type="range" id="scale-blend" min="0" max="1" step="0.1" value="0.5"
+                        <input type="range" id="scale-blend" min="0" max="1" step="0.1" value="0.8"
                             title="Blend geometric vs learned scales (0=Geo, 1=Learned)">
                     </div>
 
@@ -201,6 +267,12 @@
                         <label for="opacity-blend">Opacity Blend</label>
                         <input type="range" id="opacity-blend" min="0" max="1" step="0.1" value="1.0"
                             title="Blend geometric vs learned opacity (0=Geo, 1=Learned)">
+                    </div>
+
+                    <div class="param-group" id="sharp-color-group" style="display: none; opacity: 0.5;">
+                        <label for="color-blend">Color Blend</label>
+                        <input type="range" id="color-blend" min="0" max="1" step="0.1" value="0.5"
+                            title="Blend source vs SHARP colors (0=Source, 1=SHARP)">
                     </div>
 
                     <div class="param-group" id="sharp-projection-group" style="display: none; opacity: 0.5;"
