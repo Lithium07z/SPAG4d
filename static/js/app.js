@@ -56,6 +56,7 @@ class SPAG4DApp {
         this.colorBlendInput = document.getElementById('color-blend');
         this.sharpColorGroup = document.getElementById('sharp-color-group');
         this.skyThresholdInput = document.getElementById('sky-threshold');
+        this.skyDomeInput = document.getElementById('sky-dome');
 
         if (this.sharpRefineInput) {
             this.sharpRefineInput.addEventListener('change', () => this.updateSharpVisibility());
@@ -335,7 +336,8 @@ class SPAG4DApp {
             opacity_blend: this.opacityBlendInput ? this.opacityBlendInput.value : 1.0,
             sharp_cubemap_size: this.sharpCubemapSizeInput ? this.sharpCubemapSizeInput.value : 1536,
             sky_threshold: this.skyThresholdInput ? this.skyThresholdInput.value : 80.0,
-            color_blend: this.colorBlendInput ? this.colorBlendInput.value : 0.5
+            color_blend: this.colorBlendInput ? this.colorBlendInput.value : 0.5,
+            sky_dome: this.skyDomeInput ? this.skyDomeInput.checked : true
         });
 
         try {
