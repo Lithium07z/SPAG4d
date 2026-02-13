@@ -8,10 +8,11 @@ SPAG-4D takes your 360° panoramic photos and videos and turns them into explora
 
 You give it a 360° photo or video. It gives you back a 3D scene you can explore.
 
-Under the hood, SPAG-4D uses two AI models working together:
+Under the hood, SPAG-4D uses AI models working together:
 
-1. **DAP** (Depth Any Panoramas) figures out how far away everything in your photo is
-2. **SHARP** (Apple's ML-SHARP) adds fine detail, realistic lighting, and refined surfaces
+1. **PanDA** (Panoramic Depth Anything, CVPR 2025) figures out how far away everything in your photo is — tuned specifically for 360° images with sharp depth edges
+2. **Edge Refine** uses the panorama's own RGB edges to sharpen depth boundaries even further
+3. **SHARP** (Apple's ML-SHARP) adds fine detail, realistic lighting, and refined surfaces
 
 The result is a dense cloud of 3D Gaussians (tiny colored blobs) that reconstruct your scene in full 3D.
 
@@ -19,7 +20,10 @@ The result is a dense cloud of 3D Gaussians (tiny colored blobs) that reconstruc
 
 ### Core
 - **360° to 3D** -- Convert equirectangular panoramas into 3D Gaussian Splat scenes
-- **Real-world depth** -- DAP estimates metric depth in meters, so your scene has realistic scale
+- **PanDA depth** -- CVPR 2025 model fine-tuned for 360° panoramas with LoRA and Möbius augmentation for robust, sharp depth
+- **Edge Refine** -- RGB-guided filtering sharpens blurry depth edges using the panorama's own color detail
+- **Sky dome** -- Instead of clipping sky pixels, a backdrop sphere fills the sky so there's no black void when looking around
+- **Depth model choice** -- Switch between PanDA (default, sharper edges) and DAP (legacy, metric depth)
 - **Standard output** -- PLY files work with gsplat, SuperSplat, and any 3DGS viewer
 - **Compressed output** -- SPLAT format is ~8x smaller for sharing on the web
 
@@ -176,8 +180,14 @@ If you want to convert 360° videos, you also need ffmpeg:
 ### Command Line
 
 ```bash
-# Convert a single panorama (SHARP enabled by default)
+# Convert a single panorama (PanDA + Edge Refine + SHARP all enabled by default)
 python -m spag4d.cli convert panorama.jpg output.ply
+
+# Use legacy DAP depth model instead of PanDA
+python -m spag4d.cli convert panorama.jpg output.ply --depth-model dap
+
+# Disable edge refinement (guided filter)
+python -m spag4d.cli convert panorama.jpg output.ply --no-guided-filter
 
 # Convert without SHARP (faster, lower quality)
 python -m spag4d.cli convert panorama.jpg output.ply --no-sharp-refine
@@ -198,6 +208,9 @@ python -m spag4d.cli convert-video video.mp4 ./frames/ \
 # Video with stabilization
 python -m spag4d.cli convert-video video.mp4 ./frames/ \
     --fps 10 --stabilize
+
+# Download all model weights ahead of time
+python -m spag4d.cli download-models --model all
 ```
 
 ### Python API
@@ -205,7 +218,7 @@ python -m spag4d.cli convert-video video.mp4 ./frames/ \
 ```python
 from spag4d import SPAG4D
 
-# SHARP is enabled by default -- just create the converter
+# PanDA + Edge Refine + SHARP are all enabled by default
 converter = SPAG4D(device="cuda")
 
 result = converter.convert(
@@ -217,10 +230,13 @@ result = converter.convert(
 
 print(f"Generated {result.splat_count:,} Gaussians in {result.processing_time:.1f}s")
 
-# To disable SHARP for a specific conversion:
-result = converter.convert(
-    input_path="panorama.jpg",
-    output_path="output_fast.ply",
+# Use legacy DAP depth model:
+converter_dap = SPAG4D(device="cuda", depth_model="dap")
+
+# Disable edge refinement and SHARP for fastest conversion:
+converter_fast = SPAG4D(
+    device="cuda",
+    use_guided_filter=False,
     use_sharp_refinement=False,
 )
 ```
@@ -228,6 +244,13 @@ result = converter.convert(
 ---
 
 ## Settings Reference
+
+### Depth Estimation
+
+| Setting | Default | What It Does |
+|---------|---------|--------------|
+| `depth_model` | **panda** | Depth model: `panda` (CVPR 2025, sharper edges) or `dap` (legacy, metric depth) |
+| `guided_filter` | **True** | RGB-guided depth edge refinement — sharpens blurry depth edges using panorama color |
 
 ### General
 
@@ -240,6 +263,7 @@ result = converter.convert(
 | `depth_min` | 0.1 | Ignore anything closer than this (meters) |
 | `depth_max` | 100.0 | Ignore anything farther than this (meters) |
 | `sky_threshold` | 80.0 | Remove points beyond this distance (cuts out sky artifacts) |
+| `sky_dome` | **True** | Generate a distant backdrop sphere from sky pixels instead of deleting them |
 | `format` | ply | Output format: `ply`, `splat`, or `both` |
 
 ### SHARP Quality
@@ -251,8 +275,9 @@ SHARP refinement is **enabled by default**. Use `--no-sharp-refine` to turn it o
 | `sharp_refine` | **True** | Enable SHARP detail refinement |
 | `sharp_cubemap_size` | 1536 | Resolution of each projection face. Must be a multiple of 384. Higher = better quality, more VRAM |
 | `sharp_projection` | cubemap | `cubemap` (6 faces, fast) or `icosahedral` (20 faces, better quality) |
-| `scale_blend` | 0.5 | How much SHARP influences Gaussian sizes. 0 = geometric only, 1 = fully learned |
+| `scale_blend` | 0.8 | How much SHARP influences Gaussian sizes. 0 = geometric only, 1 = fully learned |
 | `opacity_blend` | 1.0 | How much SHARP influences transparency. 0 = uniform, 1 = fully learned |
+| `color_blend` | 0.5 | How much SHARP influences colors. 0 = source image only, 1 = fully SHARP |
 
 ### Video
 
@@ -307,10 +332,13 @@ CPU-only mode works but is significantly slower.
 SPAG4d/
 ├── spag4d/                # Main package
 │   ├── core.py            # Pipeline orchestrator
+│   ├── panda_model.py     # PanDA depth estimation wrapper (default)
+│   ├── panda_arch/        # PanDA model architecture
+│   ├── dap_model.py       # DAP depth estimation wrapper (legacy)
+│   ├── dap_arch/          # DAP model architecture (submodule)
+│   ├── depth_refiner.py   # RGB-guided depth edge refinement
 │   ├── sharp_refiner.py   # SHARP integration + max quality config
 │   ├── gaussian_converter.py  # Spherical grid to Gaussians
-│   ├── dap_model.py       # DAP depth estimation wrapper
-│   ├── dap_arch/          # DAP model architecture (submodule)
 │   ├── projection.py      # Cubemap + icosahedral projectors
 │   ├── spherical_grid.py  # 360° coordinate math
 │   ├── ply_writer.py      # PLY output
@@ -326,6 +354,7 @@ SPAG4d/
 
 ## References
 
+- [PanDA - Panoramic Depth Anything](https://github.com/caozidong/PanDA) (CVPR 2025)
 - [DAP - Depth Any Panoramas](https://github.com/Insta360-Research-Team/DAP)
 - [ML-SHARP - Apple](https://github.com/apple/ml-sharp)
 - [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)

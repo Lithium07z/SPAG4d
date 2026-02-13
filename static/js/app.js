@@ -58,6 +58,10 @@ class SPAG4DApp {
         this.skyThresholdInput = document.getElementById('sky-threshold');
         this.skyDomeInput = document.getElementById('sky-dome');
 
+        // Depth Model Elements
+        this.depthModelSelect = document.getElementById('depth-model');
+        this.guidedFilterInput = document.getElementById('guided-filter');
+
         if (this.sharpRefineInput) {
             this.sharpRefineInput.addEventListener('change', () => this.updateSharpVisibility());
 
@@ -337,7 +341,9 @@ class SPAG4DApp {
             sharp_cubemap_size: this.sharpCubemapSizeInput ? this.sharpCubemapSizeInput.value : 1536,
             sky_threshold: this.skyThresholdInput ? this.skyThresholdInput.value : 80.0,
             color_blend: this.colorBlendInput ? this.colorBlendInput.value : 0.5,
-            sky_dome: this.skyDomeInput ? this.skyDomeInput.checked : true
+            sky_dome: this.skyDomeInput ? this.skyDomeInput.checked : true,
+            depth_model: this.depthModelSelect ? this.depthModelSelect.value : 'panda',
+            guided_filter: this.guidedFilterInput ? this.guidedFilterInput.checked : true
         });
 
         try {

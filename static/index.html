@@ -94,7 +94,8 @@
                 <dl class="help-params">
                     <dt>Stride</dt>
                     <dd>Pixel sampling rate. <strong>1</strong> = one Gaussian per pixel (max quality, slow).
-                        <strong>4–8</strong> = faster previews. Start with 4, use 1–2 for finals.</dd>
+                        <strong>4–8</strong> = faster previews. Start with 4, use 1–2 for finals.
+                    </dd>
 
                     <dt>Scale</dt>
                     <dd>Size multiplier for each Gaussian splat. Increase (1.5–2.0) to fill holes in sparse areas.
@@ -106,15 +107,29 @@
 
                     <dt>Depth Scale</dt>
                     <dd>Global depth multiplier. If the world feels too compressed or stretched, adjust this. Usually
-                        1.0 is correct with DAP.</dd>
+                        1.0 is correct.</dd>
 
                     <dt>Depth Range</dt>
                     <dd>Valid depth in meters. Points outside this range are clipped. Reduce max to remove distant sky
                         artifacts.</dd>
 
+                    <dt>Depth Model</dt>
+                    <dd><strong>PanDA</strong> (CVPR 2025): Fine-tuned for 360° with sharper edges and better
+                        small-object depth.
+                        <strong>DAP</strong>: Original model, metric depth. Use PanDA for best results.
+                    </dd>
+
+                    <dt>Edge Refine</dt>
+                    <dd>RGB-guided depth edge sharpening. Uses the panorama's own color edges to sharpen blurry depth
+                        boundaries. Recommended on — negligible performance cost.</dd>
+
                     <dt>Sky Cutoff</dt>
                     <dd>Distance (meters) beyond which points are removed. Lower values (30–50) aggressively clean sky.
                         Higher values (100+) preserve distant scenery.</dd>
+
+                    <dt>Sky Dome</dt>
+                    <dd>When enabled, sky pixels become a distant backdrop sphere instead of being deleted. Fills the
+                        sky gap visible when looking around.</dd>
                 </dl>
 
                 <h3>✨ Magic Fix (SHARP) Parameters</h3>
@@ -245,9 +260,29 @@
                     </div>
 
                     <div class="param-group"
+                        title="Depth estimation model. &#10;PanDA (CVPR 2025): Better edges, robust 360°. &#10;DAP (Legacy): Original model.">
+                        <label for="depth-model">Depth Model</label>
+                        <select id="depth-model">
+                            <option value="panda" selected>PanDA</option>
+                            <option value="dap">DAP (Legacy)</option>
+                        </select>
+                    </div>
+
+                    <div class="param-group"
+                        title="RGB-guided depth edge sharpening. &#10;Uses panorama colors to sharpen blurry depth boundaries.">
+                        <label for="guided-filter">Edge Refine</label>
+                        <input type="checkbox" id="guided-filter" checked style="width: 18px; height: 18px;">
+                    </div>
+
+                    <div class="param-group"
                         title="Distance in meters beyond which points are removed. &#10;Use to cut out sky artifacts in open scenes.">
                         <label for="sky-threshold">Sky Cutoff (m)</label>
                         <input type="number" id="sky-threshold" value="80" min="0" max="1000" step="10">
+                    </div>
+
+                    <div class="param-group" title="Generate a distant sky backdrop instead of clipping sky pixels.">
+                        <label for="sky-dome">Sky Dome</label>
+                        <input type="checkbox" id="sky-dome" checked style="width: 18px; height: 18px;">
                     </div>
 
                     <!-- SHARP Params -->

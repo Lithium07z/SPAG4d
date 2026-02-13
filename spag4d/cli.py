@@ -35,6 +35,11 @@ def main():
 @click.option('--device', default='cuda', help='Device: cuda, cpu, mps')
 @click.option('--quiet', is_flag=True, help='Suppress progress output')
 @click.option('--mock-dap', is_flag=True, help='Use mock DAP model (for testing)')
+# Depth Model Options
+@click.option('--depth-model', type=click.Choice(['panda', 'dap']),
+              default='panda', help='Depth model: panda (default) or dap (legacy)')
+@click.option('--guided-filter/--no-guided-filter', default=True,
+              help='RGB-guided depth edge refinement (default: enabled)')
 # SHARP Options
 @click.option('--sharp-refine/--no-sharp-refine', default=True,
               help='Use SHARP model for perceptual attribute refinement (default: enabled)')
@@ -65,6 +70,8 @@ def convert(
     device: str,
     quiet: bool,
     mock_dap: bool,
+    depth_model: str,
+    guided_filter: bool,
     sharp_refine: bool,
     sharp_model: str,
     sharp_cubemap_size: int,
@@ -90,6 +97,8 @@ def convert(
     converter = SPAG4D(
         device=device,
         use_mock_dap=mock_dap,
+        depth_model=depth_model,
+        use_guided_filter=guided_filter,
         use_sharp_refinement=sharp_refine,
         sharp_model_path=sharp_model,
         sharp_cubemap_size=sharp_cubemap_size,
@@ -179,24 +188,37 @@ def convert(
 
 @main.command('download-models')
 @click.option('--verify', is_flag=True, help='Verify downloaded weights')
-def download_models(verify: bool):
-    """Download and cache DAP model weights."""
-    from .dap_model import DAPModel, DAP_CACHE_DIR
+@click.option('--model', 'model_name', type=click.Choice(['panda', 'dap', 'all']),
+              default='all', help='Which model to download (default: all)')
+def download_models(verify: bool, model_name: str):
+    """Download and cache depth model weights."""
     
-    click.echo("Downloading DAP model weights...")
+    if model_name in ('panda', 'all'):
+        from .panda_model import PanDAModel
+        click.echo("Downloading PanDA model weights...")
+        try:
+            path = PanDAModel._get_or_download_weights()
+            click.echo(f"✓ PanDA weights cached at: {path}")
+        except Exception as e:
+            click.echo(f"✗ PanDA download failed: {e}", err=True)
+            if model_name == 'panda':
+                raise click.Abort()
     
-    try:
-        path = DAPModel._get_or_download_weights()
-        click.echo(f"✓ Weights cached at: {path}")
-        
-        if verify:
-            if DAPModel._verify_checksum(Path(path)):
-                click.echo("✓ Checksum verified")
-            else:
-                click.echo("⚠ Checksum verification skipped (no reference hash)")
-    except Exception as e:
-        click.echo(f"✗ Download failed: {e}", err=True)
-        raise click.Abort()
+    if model_name in ('dap', 'all'):
+        from .dap_model import DAPModel
+        click.echo("Downloading DAP model weights...")
+        try:
+            path = DAPModel._get_or_download_weights()
+            click.echo(f"✓ DAP weights cached at: {path}")
+            if verify:
+                if DAPModel._verify_checksum(Path(path)):
+                    click.echo("✓ Checksum verified")
+                else:
+                    click.echo("⚠ Checksum verification skipped (no reference hash)")
+        except Exception as e:
+            click.echo(f"✗ DAP download failed: {e}", err=True)
+            if model_name == 'dap':
+                raise click.Abort()
 
 
 @main.command()
@@ -262,6 +284,10 @@ def serve(port: int, host: str, reload: bool):
               help='Cubemap face size for SHARP (must be multiple of 384)')
 @click.option('--sharp-projection', type=click.Choice(['cubemap', 'icosahedral']),
               default='cubemap', help='SHARP projection mode')
+@click.option('--depth-model', type=click.Choice(['panda', 'dap']),
+              default='panda', help='Depth model: panda (default) or dap (legacy)')
+@click.option('--guided-filter/--no-guided-filter', default=True,
+              help='RGB-guided depth edge refinement (default: enabled)')
 @click.option('--scale-blend', type=float, default=0.5,
               help='Blend factor for SHARP scales (0=geometric only, 1=SHARP only)')
 @click.option('--opacity-blend', type=float, default=1.0,
@@ -269,6 +295,7 @@ def serve(port: int, host: str, reload: bool):
 def convert_video(input_video: str, output_dir: str, fps: int, start: float, duration: float,
                   stride: int, stabilize: bool, device: str, sharp_refine: bool,
                   sharp_cubemap_size: int, sharp_projection: str,
+                  depth_model: str, guided_filter: bool,
                   scale_blend: float, opacity_blend: float):
     """
     Extract frames from 360° video and convert each to Gaussian splat.
@@ -326,6 +353,8 @@ def convert_video(input_video: str, output_dir: str, fps: int, start: float, dur
         # Convert each frame
         converter = SPAG4D(
             device=device,
+            depth_model=depth_model,
+            use_guided_filter=guided_filter,
             use_sharp_refinement=sharp_refine,
             sharp_cubemap_size=sharp_cubemap_size,
             sharp_projection_mode=sharp_projection,
@@ -335,7 +364,7 @@ def convert_video(input_video: str, output_dir: str, fps: int, start: float, dur
             for frame_path in bar:
                 out_path = output_dir / (frame_path.stem + '.ply')
                 try:
-                    # Stabilization pass
+                    # Track camera motion for stabilization
                     if vo:
                         img_bgr = cv2.imread(str(frame_path))
                         vo.process_frame(img_bgr)
@@ -348,6 +377,16 @@ def convert_video(input_video: str, output_dir: str, fps: int, start: float, dur
                         scale_blend=scale_blend,
                         opacity_blend=opacity_blend,
                     )
+
+                    # Apply stabilization rotation to written PLY
+                    if vo:
+                        from spag4d.visual_odometry import transform_gaussians
+                        from spag4d.ply_writer import load_ply_gaussians, save_ply_gaussians
+                        R_stab = vo.get_stabilization_rotation()
+                        gaussians = load_ply_gaussians(str(out_path))
+                        gaussians = transform_gaussians(gaussians, R_stab)
+                        save_ply_gaussians(gaussians, str(out_path))
+
                 except Exception as e:
                     click.echo(f"\n⚠ {frame_path.name}: {e}", err=True)
     

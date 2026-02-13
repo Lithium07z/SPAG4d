@@ -77,13 +77,18 @@ async def lifespan(app: FastAPI):
     # Startup
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
     
-    # Try to initialize with real DAP, fall back to mock if unavailable
+    # Try to initialize with PanDA (preferred), fall back to DAP, then mock
     try:
-        processor = SPAG4D(device="cuda", use_mock_dap=False)
-        print("Loaded real DAP model")
+        processor = SPAG4D(device="cuda", depth_model="panda")
+        print("Loaded PanDA depth model")
     except Exception as e:
-        print(f"DAP model not available ({e}), using mock depth")
-        processor = SPAG4D(device="cuda", use_mock_dap=True)
+        print(f"PanDA model not available ({e}), trying DAP...")
+        try:
+            processor = SPAG4D(device="cuda", depth_model="dap")
+            print("Loaded DAP depth model")
+        except Exception as e2:
+            print(f"DAP model not available ({e2}), using mock depth")
+            processor = SPAG4D(device="cuda", depth_model="mock")
     
     gpu_semaphore = asyncio.Semaphore(GPU_SEMAPHORE_LIMIT)
     
@@ -139,8 +144,20 @@ async def run_cleanup():
                         pass
     
     # Also clean orphaned files in temp dir
+    # Collect paths of active jobs to avoid deleting their files
+    active_paths = set()
+    for j in jobs.values():
+        if j.status in ("queued", "processing"):
+            for p in [j.input_path, j.output_ply_path, j.output_splat_path,
+                      j.preview_splat_path, j.depth_preview_path,
+                      j.frames_dir, j.output_zip_path]:
+                if p:
+                    active_paths.add(str(p))
+    
     try:
         for f in TEMP_DIR.iterdir():
+            if str(f) in active_paths:
+                continue  # Skip files belonging to active jobs
             if now - f.stat().st_mtime > JOB_TTL_SECONDS:
                 if f.is_dir():
                     shutil.rmtree(f, ignore_errors=True)
@@ -173,7 +190,11 @@ async def convert_panorama(
     color_blend: float = Query(0.5, ge=0.0, le=1.0),
     opacity_blend: float = Query(1.0, ge=0.0, le=1.0),
     sharp_cubemap_size: int = Query(1536),
-    sky_threshold: float = Query(80.0)
+    sky_threshold: float = Query(80.0),
+    sky_dome: bool = Query(True),
+    # Depth model selection
+    depth_model: str = Query("panda"),
+    guided_filter: bool = Query(True)
 ):
     """
     Convert uploaded panorama to Gaussian splat.
@@ -192,14 +213,30 @@ async def convert_panorama(
     
     # Store params for feedback
     job.params = {
+        "depth_model": depth_model,
+        "guided_filter": guided_filter,
         "sharp_refine": sharp_refine,
         "sharp_projection": sharp_projection,
         "scale_blend": scale_blend,
         "color_blend": color_blend,
         "opacity_blend": opacity_blend,
         "sharp_cubemap_size": sharp_cubemap_size,
-        "sky_threshold": sky_threshold
+        "sky_threshold": sky_threshold,
+        "sky_dome": sky_dome
     }
+    
+    # Re-initialize processor if depth model changed
+    global processor
+    if depth_model != processor.depth_model_name:
+        try:
+            processor = SPAG4D(
+                device="cuda",
+                depth_model=depth_model,
+                use_guided_filter=guided_filter,
+            )
+            print(f"Switched to depth model: {depth_model}")
+        except Exception as e:
+            print(f"Failed to switch depth model to {depth_model}: {e}")
     
     # Determine file extension
     suffix = Path(file.filename).suffix if file.filename else '.jpg'
@@ -218,7 +255,8 @@ async def convert_panorama(
     asyncio.create_task(process_job(
         job, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
         sharp_refine, sharp_projection, scale_blend, opacity_blend,
-        sharp_cubemap_size, sky_threshold, color_blend=color_blend
+        sharp_cubemap_size, sky_threshold, color_blend=color_blend,
+        sky_dome=sky_dome
     ))
     
     return JSONResponse({
@@ -246,7 +284,8 @@ async def convert_video(
     color_blend: float = Query(0.5, ge=0.0, le=1.0),
     opacity_blend: float = Query(1.0, ge=0.0, le=1.0),
     sharp_cubemap_size: int = Query(1536),
-    sky_threshold: float = Query(80.0)
+    sky_threshold: float = Query(80.0),
+    sky_dome: bool = Query(True)
 ):
     """Convert uploaded 360 video to sequence of Gaussian splats."""
     content = await file.read()
@@ -268,9 +307,9 @@ async def convert_video(
     
     asyncio.create_task(process_video_job(
         job, fps, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
-        sky_threshold, # Dynamic sky threshold
+        sky_threshold,
         start_time, duration, temporal_alpha, stabilize_video, scale_blend, opacity_blend,
-        sharp_cubemap_size
+        sharp_cubemap_size, color_blend
     ))
     
     return JSONResponse({
@@ -295,7 +334,8 @@ async def process_job(
     opacity_blend: float = 1.0,
     sharp_cubemap_size: int = 1536,
     sky_threshold: float = 80.0,
-    color_blend: float = 0.5
+    color_blend: float = 0.5,
+    sky_dome: bool = True
 ):
     """Process conversion job with GPU semaphore."""
     global processor
@@ -343,7 +383,8 @@ async def process_job(
                 opacity_blend=opacity_blend,
                 color_blend=color_blend,
                 sharp_cubemap_size=sharp_cubemap_size,
-                sky_threshold=sky_threshold
+                sky_threshold=sky_threshold,
+                sky_dome=sky_dome
             )
             
             # Generate web preview (low-res SPLAT)
@@ -363,7 +404,8 @@ async def process_job(
                 opacity_blend=opacity_blend,
                 color_blend=color_blend,
                 sharp_cubemap_size=sharp_cubemap_size,
-                sky_threshold=sky_threshold
+                sky_threshold=sky_threshold,
+                sky_dome=sky_dome
             )
             
             # Also generate full SPLAT for download
@@ -402,11 +444,12 @@ async def process_video_job(
     sky_threshold: float = 80.0,
     start_time: float = 0.0,
     duration: Optional[float] = None,
-    temporal_alpha: float = 0.7,  # EMA smoothing factor (0 = off, 1 = max smooth)
-    stabilize_video: bool = False,  # Enable visual odometry stabilization
+    temporal_alpha: float = 0.7,
+    stabilize_video: bool = False,
     scale_blend: float = 0.5,
     opacity_blend: float = 1.0,
     sharp_cubemap_size: int = 1536,
+    color_blend: float = 0.5,
 ):
     """Process video conversion with batched inference, temporal smoothing, and stabilization."""
     global processor

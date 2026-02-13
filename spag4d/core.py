@@ -27,7 +27,7 @@ class SPAG4D:
     """
     SPAG-4D: 360° Panorama to Gaussian Splat converter.
     
-    Uses DAP for native equirectangular depth estimation
+    Uses PanDA or DAP for native equirectangular depth estimation
     and SPAG algorithm for Gaussian splat generation.
     """
     
@@ -36,6 +36,10 @@ class SPAG4D:
         device: str = "cuda",
         model_path: Optional[str] = None,
         use_mock_dap: bool = False,
+        depth_model: str = "panda",  # "panda", "dap", or "mock"
+        use_guided_filter: bool = True,
+        guided_filter_radius: int = 8,
+        guided_filter_eps: float = 1e-4,
         use_sharp_refinement: bool = True,
         sharp_model_path: Optional[str] = None,
         sharp_cubemap_size: int = 1536,
@@ -46,8 +50,12 @@ class SPAG4D:
 
         Args:
             device: Device for computation ("cuda", "cpu", "mps")
-            model_path: Optional explicit path to DAP weights
+            model_path: Optional explicit path to depth model weights
             use_mock_dap: Use mock DAP model (for testing without weights)
+            depth_model: Depth model to use: "panda" (default), "dap", or "mock"
+            use_guided_filter: Enable RGB-guided depth edge refinement
+            guided_filter_radius: Guided filter radius (larger = smoother)
+            guided_filter_eps: Guided filter regularization (smaller = sharper edges)
             use_sharp_refinement: Enable SHARP attribute refinement (default: True)
             sharp_model_path: Optional path to SHARP weights
             sharp_cubemap_size: Cubemap face size for SHARP (must be multiple of 384)
@@ -57,13 +65,30 @@ class SPAG4D:
             device if device != "cuda" or torch.cuda.is_available() else "cpu"
         )
 
-        # Load DAP model
+        # Handle legacy use_mock_dap parameter
         if use_mock_dap:
+            depth_model = "mock"
+
+        # Load depth model
+        self.depth_model_name = depth_model
+        if depth_model == "mock":
             from .dap_model import MockDAPModel
             self.dap = MockDAPModel.load(device=self.device)
-        else:
+        elif depth_model == "panda":
+            from .panda_model import PanDAModel
+            self.dap = PanDAModel.load(model_path, device=self.device)
+        else:  # "dap" or fallback
             from .dap_model import DAPModel
             self.dap = DAPModel.load(model_path, device=self.device)
+
+        # Guided depth filter (sharpens depth edges using RGB guide)
+        self.guided_refiner = None
+        if use_guided_filter:
+            from .depth_refiner import GuidedDepthRefiner
+            self.guided_refiner = GuidedDepthRefiner(
+                radius=guided_filter_radius,
+                eps=guided_filter_eps,
+            )
 
         # SHARP refinement (enabled by default for maximum quality)
         self.sharp_refiner = None
@@ -160,9 +185,14 @@ class SPAG4D:
             )
         grid = self._grid_cache[grid_key]
         
-        # Estimate depth with DAP
+        # Estimate depth with depth model (PanDA, DAP, or mock)
         with torch.inference_mode():
             depth, validity_mask = self.dap.predict(image_tensor)
+        
+        # Apply RGB-guided depth edge refinement
+        if self.guided_refiner is not None:
+            img_float = image_tensor.float() / 255.0 if image_tensor.dtype == torch.uint8 else image_tensor.float()
+            depth = self.guided_refiner.refine(depth, img_float)
         
         # Save depth preview if requested
         if depth_preview_path:
@@ -231,11 +261,9 @@ class SPAG4D:
                 self.sharp_refiner.load_model()
             else:
                 use_sharp = False
-            
-            # We need raw image tensor (0-1 float)
-            # image_tensor is uint8 [H, W, 3] from earlier loading?
-            # Let's check: "image_tensor = torch.from_numpy(np.array(img)).to(self.device)"
-            # PIL -> numpy is usually uint8.
+        
+        # Run SHARP refinement if still enabled after all checks
+        if use_sharp and self.sharp_refiner is not None:
             img_float = image_tensor.float() / 255.0
             refined_attrs = self.sharp_refiner.refine(img_float, depth)
 
@@ -267,6 +295,21 @@ class SPAG4D:
                 depth_max=depth_max,
                 validity_mask=validity_mask
             )
+        
+        # Generate sky dome if enabled
+        if kwargs.get('sky_dome', True) and sky_threshold > 0:
+            from .gaussian_converter import generate_sky_dome
+            sky_gaussians = generate_sky_dome(
+                image=image_tensor,
+                depth=depth,
+                grid=grid,
+                sky_threshold=sky_threshold,
+            )
+            if sky_gaussians['means'].shape[0] > 0:
+                for key in gaussians:
+                    gaussians[key] = torch.cat(
+                        [gaussians[key], sky_gaussians[key]], dim=0
+                    )
         
         # Save output
         output_path = Path(output_path)
