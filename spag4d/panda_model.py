@@ -213,7 +213,7 @@ class PanDAModel:
 
         # PanDA requires dimensions to be multiples of 14 (ViT patch size)
         # Cap input resolution to prevent OOM
-        MAX_INPUT_WIDTH = 4096
+        MAX_INPUT_WIDTH = 1022
         did_downscale = False
         target_H, target_W = H, W
 
