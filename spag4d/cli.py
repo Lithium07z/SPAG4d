@@ -36,8 +36,8 @@ def main():
 @click.option('--quiet', is_flag=True, help='Suppress progress output')
 @click.option('--mock-dap', is_flag=True, help='Use mock DAP model (for testing)')
 # Depth Model Options
-@click.option('--depth-model', type=click.Choice(['panda', 'dap']),
-              default='panda', help='Depth model: panda (default) or dap (legacy)')
+@click.option('--depth-model', type=click.Choice(['panda', 'da3', 'dap']),
+              default='panda', help='Depth model: panda (default), da3 (Depth Anything V3), or dap (legacy)')
 @click.option('--guided-filter/--no-guided-filter', default=True,
               help='RGB-guided depth edge refinement (default: enabled)')
 # SHARP Options
@@ -284,8 +284,8 @@ def serve(port: int, host: str, reload: bool):
               help='Cubemap face size for SHARP (must be multiple of 384)')
 @click.option('--sharp-projection', type=click.Choice(['cubemap', 'icosahedral']),
               default='cubemap', help='SHARP projection mode')
-@click.option('--depth-model', type=click.Choice(['panda', 'dap']),
-              default='panda', help='Depth model: panda (default) or dap (legacy)')
+@click.option('--depth-model', type=click.Choice(['panda', 'da3', 'dap']),
+              default='panda', help='Depth model: panda (default), da3 (Depth Anything V3), or dap (legacy)')
 @click.option('--guided-filter/--no-guided-filter', default=True,
               help='RGB-guided depth edge refinement (default: enabled)')
 @click.option('--scale-blend', type=float, default=0.5,

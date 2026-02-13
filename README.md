@@ -14,6 +14,8 @@ Under the hood, SPAG-4D uses AI models working together:
 2. **Edge Refine** uses the panorama's own RGB edges to sharpen depth boundaries even further
 3. **SHARP** (Apple's ML-SHARP) adds fine detail, realistic lighting, and refined surfaces
 
+Alternatively, you can use **Depth Anything V3** (DA3) for the latest general-purpose metric depth, or legacy **DAP** for the original model.
+
 The result is a dense cloud of 3D Gaussians (tiny colored blobs) that reconstruct your scene in full 3D.
 
 ## Features
@@ -23,7 +25,7 @@ The result is a dense cloud of 3D Gaussians (tiny colored blobs) that reconstruc
 - **PanDA depth** -- CVPR 2025 model fine-tuned for 360° panoramas with LoRA and Möbius augmentation for robust, sharp depth
 - **Edge Refine** -- RGB-guided filtering sharpens blurry depth edges using the panorama's own color detail
 - **Sky dome** -- Instead of clipping sky pixels, a backdrop sphere fills the sky so there's no black void when looking around
-- **Depth model choice** -- Switch between PanDA (default, sharper edges) and DAP (legacy, metric depth)
+- **Depth model choice** -- Switch between PanDA (default, 360°-tuned), DA3 (latest general-purpose), and DAP (legacy)
 - **Standard output** -- PLY files work with gsplat, SuperSplat, and any 3DGS viewer
 - **Compressed output** -- SPLAT format is ~8x smaller for sharing on the web
 
@@ -249,7 +251,7 @@ converter_fast = SPAG4D(
 
 | Setting | Default | What It Does |
 |---------|---------|--------------|
-| `depth_model` | **panda** | Depth model: `panda` (CVPR 2025, sharper edges) or `dap` (legacy, metric depth) |
+| `depth_model` | **panda** | Depth model: `panda` (360°-tuned), `da3` (Depth Anything V3 metric), or `dap` (legacy) |
 | `guided_filter` | **True** | RGB-guided depth edge refinement — sharpens blurry depth edges using panorama color |
 
 ### General
@@ -334,6 +336,7 @@ SPAG4d/
 │   ├── core.py            # Pipeline orchestrator
 │   ├── panda_model.py     # PanDA depth estimation wrapper (default)
 │   ├── panda_arch/        # PanDA model architecture
+│   ├── da3_model.py       # Depth Anything V3 wrapper
 │   ├── dap_model.py       # DAP depth estimation wrapper (legacy)
 │   ├── dap_arch/          # DAP model architecture (submodule)
 │   ├── depth_refiner.py   # RGB-guided depth edge refinement
@@ -355,6 +358,7 @@ SPAG4d/
 ## References
 
 - [PanDA - Panoramic Depth Anything](https://github.com/caozidong/PanDA) (CVPR 2025)
+- [Depth Anything V3](https://github.com/ByteDance-Seed/Depth-Anything-3) (ByteDance-Seed)
 - [DAP - Depth Any Panoramas](https://github.com/Insta360-Research-Team/DAP)
 - [ML-SHARP - Apple](https://github.com/apple/ml-sharp)
 - [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)

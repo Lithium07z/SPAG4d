@@ -36,7 +36,7 @@ class SPAG4D:
         device: str = "cuda",
         model_path: Optional[str] = None,
         use_mock_dap: bool = False,
-        depth_model: str = "panda",  # "panda", "dap", or "mock"
+        depth_model: str = "panda",  # "panda", "da3", "dap", or "mock"
         use_guided_filter: bool = True,
         guided_filter_radius: int = 8,
         guided_filter_eps: float = 1e-4,
@@ -52,7 +52,7 @@ class SPAG4D:
             device: Device for computation ("cuda", "cpu", "mps")
             model_path: Optional explicit path to depth model weights
             use_mock_dap: Use mock DAP model (for testing without weights)
-            depth_model: Depth model to use: "panda" (default), "dap", or "mock"
+            depth_model: Depth model to use: "panda" (default), "da3", "dap", or "mock"
             use_guided_filter: Enable RGB-guided depth edge refinement
             guided_filter_radius: Guided filter radius (larger = smoother)
             guided_filter_eps: Guided filter regularization (smaller = sharper edges)
@@ -77,6 +77,9 @@ class SPAG4D:
         elif depth_model == "panda":
             from .panda_model import PanDAModel
             self.dap = PanDAModel.load(model_path, device=self.device)
+        elif depth_model == "da3":
+            from .da3_model import DA3Model
+            self.dap = DA3Model.load(device=self.device)
         else:  # "dap" or fallback
             from .dap_model import DAPModel
             self.dap = DAPModel.load(model_path, device=self.device)
