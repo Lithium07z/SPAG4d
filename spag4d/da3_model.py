@@ -115,10 +115,15 @@ class DA3Model:
             img_np = (image.cpu().float() * 255).clamp(0, 255).byte().numpy()
 
         # Run inference — DA3 handles its own resizing internally
-        # Default process_res is 504, which is safe for VRAM
+        # Default was 504, which is too low for high-res inputs.
+        # Scale based on input size but cap at 2048 to avoid OOM on 24GB VRAM.
+        # (2048 is 4x the default resolution)
+        max_dim = max(H, W)
+        process_res = min(max_dim, 2048)
+        
         prediction = self.model.inference(
             [img_np],
-            process_res=504,
+            process_res=process_res,
             process_res_method="upper_bound_resize",
         )
 
