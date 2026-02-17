@@ -7,6 +7,12 @@
 - **NVIDIA Driver** 525+ with CUDA 12.1 support
 - No separate Python or CUDA install needed — everything is bundled
 
+### Optional: Depth Anything V3
+To use the new DA3 model, you must install it manually in the environment:
+```cmd
+.venv\Scripts\pip install -e "git+https://github.com/ByteDance-Seed/depth-anything-3.git#egg=depth_anything_3"
+```
+
 ## Quick Start
 
 1. **Extract** this archive to any folder (e.g. `C:\SPAG-4D`)
@@ -21,6 +27,7 @@ On the first conversion, SPAG-4D will download two AI models:
 | Model | Size | Purpose |
 |-------|------|---------|
 | PanDA (Panoramic Depth Anything) | ~1.5 GB | 360° depth estimation (default) |
+| DA3 (Depth Anything V3) | ~1.5 GB | General-purpose metric depth (requires install) |
 | ML-SHARP | ~3 GB | Perceptual quality refinement |
 
 Optionally, you can use the legacy DAP model instead:

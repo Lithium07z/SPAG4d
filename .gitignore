@@ -83,3 +83,12 @@ TestImage/frame_*.ply
 # Review Docs
 SHARP_IMPLEMENTATION_REVIEW.md
 SHARP_INTEGRATION_REVIEW.md
+
+# Cloned model repos (not submodules)
+spag4d/panda_arch/PanDA/
+
+# Test results
+test_results*.txt
+
+# Build outputs
+dist/
