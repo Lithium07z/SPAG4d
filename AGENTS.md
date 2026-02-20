@@ -220,3 +220,6 @@ mask_combined = (np.logical_or(mask_orig, mask_rolled_back)).astype(np.uint8)
 | depth ëª¨ë¸ ì´ë¦„ ë¬´ì‹œ | ì¡°ê±´ ë¶„ê¸° ëˆ„ë½ | panda/da3/dap 3-way ë¶„ê¸° êµ¬í˜„ |
 | `return str(output_dir)` | ë””ë ‰í† ë¦¬ ë°˜í™˜ | MP4 ì¸ì½”ë”© í›„ íŒŒì¼ ê²½ë¡œ ë°˜í™˜ |
 | `complete_depth(INPUT, ...)` | ì›ë³¸ ë¹„ë””ì˜¤ ì „ë‹¬ | ì¸í˜ì¸íŒ… ê²°ê³¼ `bg_video` ì „ë‹¬ |
+
+## º¯°æ ±â·Ï
+- run_pipeline.ipynb: Colab PIL ImportError ¹æÁö¸¦ À§ÇØ Pillow 10.2.0 °­Á¦ Àç¼³Ä¡ ¼¿ Ãß°¡.
