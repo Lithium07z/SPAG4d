@@ -66,8 +66,12 @@ def generate_masks(
 
     predictor = build_sam3_video_predictor(
         checkpoint_path=sam3_ckpt,
-        device=device,
     )
+    # SAM3 API는 device 인자를 직접 받지 않으므로 로드 후 GPU로 이동
+    if hasattr(predictor, "to"):
+        predictor = predictor.to(device)
+    elif hasattr(predictor, "model"):
+        predictor.model = predictor.model.to(device)
 
     cap = cv2.VideoCapture(video_path)
     assert cap.isOpened(), f"Failed to open video: {video_path}"

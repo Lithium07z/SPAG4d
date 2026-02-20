@@ -108,7 +108,12 @@ lama_model = SimpleLama(**kwargs)
 ```python
 from sam3.model_builder import build_sam3_video_predictor
 
-predictor = build_sam3_video_predictor(checkpoint_path=SAM3_PATH, device="cuda")
+# SAM3 API는 device 인자를 직접 받지 않음 — 로드 후 이동
+predictor = build_sam3_video_predictor(checkpoint_path=SAM3_PATH)
+if hasattr(predictor, "to"):
+    predictor = predictor.to(device)
+elif hasattr(predictor, "model"):
+    predictor.model = predictor.model.to(device)
 ```
 
 ---
