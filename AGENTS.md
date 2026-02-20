@@ -220,6 +220,35 @@ mask_combined = (np.logical_or(mask_orig, mask_rolled_back)).astype(np.uint8)
 | depth 모델 이름 무시 | 조건 분기 누락 | panda/da3/dap 3-way 분기 구현 |
 | `return str(output_dir)` | 디렉토리 반환 | MP4 인코딩 후 파일 경로 반환 |
 | `complete_depth(INPUT, ...)` | 원본 비디오 전달 | 인페인팅 결과 `bg_video` 전달 |
+| `build_sam3_video_predictor(device=device)` | SAM3 API가 device 인자 미지원 | 인자 제거 후 `.to(device)` 로 이동 |
+| Pillow `ImportError: _Ink` | SAM3/ProPainter가 Pillow를 9.x로 다운그레이드 | Pillow 재설치를 pip 셀 **마지막**에 배치, 재시작 필수 |
 
-## ���� ���
-- run_pipeline.ipynb: Colab PIL ImportError ������ ���� Pillow 10.2.0 ���� �缳ġ �� �߰�.
+## Colab pip 설치 순서 규칙
+
+Pillow 버전 충돌을 막으려면 `!pip install --force-reinstall "Pillow==10.2.0"` 을
+**모든 패키지 설치 후 마지막 줄**에 배치해야 한다. SAM3, ProPainter requirements가
+Pillow를 9.x로 다운그레이드하기 때문이다.
+
+```python
+# ❌ 잘못된 순서 — SAM3/ProPainter가 이후에 Pillow를 덮어씀
+!pip install --force-reinstall "Pillow==10.2.0"
+!pip install git+https://github.com/facebookresearch/sam3.git
+!pip install -r /content/ProPainter/requirements.txt
+
+# ✅ 올바른 순서 — 모든 패키지 설치 완료 후 마지막에 재설치
+!pip install git+https://github.com/facebookresearch/sam3.git
+!pip install -r /content/ProPainter/requirements.txt
+!pip install --force-reinstall "Pillow==10.2.0"   # 항상 마지막
+```
+
+재설치 후에는 **반드시 런타임을 재시작**해야 메모리의 구버전이 교체된다.
+런타임 재시작 셀은 pip 셀 바로 뒤에 별도로 배치한다:
+
+```python
+# pip 셀 다음 셀에 단독 배치 (최초 1회만 실행)
+import os
+os.kill(os.getpid(), 9)  # 커널 재시작 → 이후 Step 0부터 재실행
+```
+
+## ���� ���
+- run_pipeline.ipynb: Colab PIL ImportError ������ ���� Pillow 10.2.0 ���� �缳ġ �� �߰�.
