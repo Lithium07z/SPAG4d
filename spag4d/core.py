@@ -133,14 +133,14 @@ class SPAG4D:
         sky_threshold: float = 80.0,
         sh_degree: int = 0,
         output_format: Literal["ply", "splat"] = "ply",
-
         force_erp: bool = False,
         depth_preview_path: Optional[Union[str, Path]] = None,
+        depth_override: Optional[np.ndarray] = None,  # MODIFIED: depth_override
         **kwargs
     ) -> ConversionResult:
         """
         Convert equirectangular panorama to Gaussian splat.
-        
+
         Args:
             input_path: Path to input ERP image
             output_path: Path for output file
@@ -154,7 +154,11 @@ class SPAG4D:
             sh_degree: Spherical harmonics degree (0 or 3)
             output_format: Output format ("ply" or "splat")
             force_erp: Process even if aspect ratio isn't 2:1
-        
+            depth_override: Optional pre-computed depth map as numpy array with shape
+                (H, W) or (H, W, 1). When provided, skips internal DAP/PanDA depth
+                estimation and uses this array directly. depth_override=None (default)
+                preserves the original behaviour.
+
         Returns:
             ConversionResult with output details
         """
@@ -188,9 +192,18 @@ class SPAG4D:
             )
         grid = self._grid_cache[grid_key]
         
-        # Estimate depth with depth model (PanDA, DAP, or mock)
-        with torch.inference_mode():
-            depth, validity_mask = self.dap.predict(image_tensor)
+        # MODIFIED: depth_override — skip model inference when external depth is supplied
+        if depth_override is not None:
+            # Accept (H, W) or (H, W, 1) numpy arrays
+            _d = np.asarray(depth_override, dtype=np.float32)
+            if _d.ndim == 3 and _d.shape[2] == 1:
+                _d = _d[:, :, 0]
+            depth = torch.from_numpy(_d).to(self.device)
+            validity_mask = None  # downstream sky_threshold logic will build it
+        else:
+            # Estimate depth with depth model (PanDA, DAP, or mock)
+            with torch.inference_mode():
+                depth, validity_mask = self.dap.predict(image_tensor)
         
         # Apply RGB-guided depth edge refinement
         if self.guided_refiner is not None:

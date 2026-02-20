@@ -1,0 +1,42 @@
+# configs/default.yaml
+# Default configuration for the occlusion-SPAG4D pipeline.
+# All pipeline modules load this file at runtime.
+# Do NOT hardcode paths — use environment variables or this file.
+
+segmentation:
+  # SAM3 text prompts for foreground segmentation.
+  # Add one prompt per foreground category in the target scene.
+  prompts:
+    - "person"
+    - "car"
+    - "bicycle"
+
+depth:
+  # Depth model to use for background depth estimation.
+  # Options: "panda" (recommended), "da3", "dap"
+  model: "panda"
+
+  # Conservative push delta (metres).
+  # Masked foreground pixels are replaced by:
+  #   background_border_median_depth + delta
+  # A positive delta ensures the synthesised background depth is
+  # slightly farther than the adjacent real background, avoiding
+  # z-fighting when the foreground layer is composited on top.
+  delta: 0.5
+
+inpainting:
+  # Fractional padding added to each cubemap face before LaMa runs.
+  # Larger values give the inpainter more context but slow inference.
+  overlap_pad: 0.1
+
+composer:
+  # Output format for per-frame Gaussian splat files.
+  output_format: "ply"
+  # Downsampling stride for the background layer (coarser → faster)
+  stride: 2
+  # Downsampling stride for the foreground layer (finer → more detail on objects)
+  fg_stride: 1
+  # Depth threshold above which pixels are treated as sky and excluded from
+  # the foreground layer.  Background pixels are pushed to sky_threshold + 1
+  # so validity_mask zeroes them out automatically.
+  sky_threshold: 80.0
