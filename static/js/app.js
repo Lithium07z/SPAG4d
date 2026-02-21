@@ -64,9 +64,18 @@ class SPAG4DApp {
         this.guidedStrengthInput = document.getElementById('guided-strength');
         this.guidedStrengthGroup = document.getElementById('guided-strength-group');
 
+        // DA3 specific elements
+        this.da3ProjectionInput = document.getElementById('da3-projection');
+        this.da3ProjectionGroup = document.getElementById('da3-projection-group');
+
         if (this.guidedFilterInput) {
             this.guidedFilterInput.addEventListener('change', () => this.updateGuidedStrengthVisibility());
             this.updateGuidedStrengthVisibility();
+        }
+
+        if (this.depthModelSelect) {
+            this.depthModelSelect.addEventListener('change', () => this.updateDepthModelParamsVisibility());
+            this.updateDepthModelParamsVisibility();
         }
 
         if (this.sharpRefineInput) {
@@ -159,6 +168,25 @@ class SPAG4DApp {
             this.sharpColorGroup.style.opacity = checked ? '1' : '0.5';
         }
     }
+
+    updateDepthModelParamsVisibility() {
+        if (!this.depthModelSelect) return;
+
+        const isDa3 = this.depthModelSelect.value === 'da3';
+        if (this.da3ProjectionGroup) {
+            this.da3ProjectionGroup.style.display = isDa3 ? 'flex' : 'none';
+        }
+    }
+
+    updateGuidedStrengthVisibility() {
+        if (!this.guidedFilterInput) return;
+
+        const isGuided = this.guidedFilterInput.checked;
+        if (this.guidedStrengthGroup) {
+            this.guidedStrengthGroup.style.display = isGuided ? 'flex' : 'none';
+        }
+    }
+
 
     setupTabs() {
         const tabRgb = document.getElementById('tab-rgb');
@@ -350,6 +378,7 @@ class SPAG4DApp {
             color_blend: this.colorBlendInput ? this.colorBlendInput.value : 0.5,
             sky_dome: this.skyDomeInput ? this.skyDomeInput.checked : true,
             depth_model: this.depthModelSelect ? this.depthModelSelect.value : 'panda',
+            da3_projection: this.da3ProjectionInput ? this.da3ProjectionInput.value : 'equirectangular',
             guided_filter: this.guidedFilterInput ? this.guidedFilterInput.checked : true,
             guided_strength: this.guidedStrengthInput ? this.guidedStrengthInput.value : 1.0
         });

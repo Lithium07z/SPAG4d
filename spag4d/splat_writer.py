@@ -41,12 +41,13 @@ def save_splat(gaussians: dict, path: str) -> None:
     if N == 0:
         raise ValueError("No valid Gaussians to save")
     
-    # Note: No coordinate transform - matches PLY output frame (Y-up internal)
-    
     # ─────────────────────────────────────────────────────────────────
-    # Quantize
+    # Coordinate Transform:
+    # Match PLY output frame (OpenCV Y-down) by flipping Y
     # ─────────────────────────────────────────────────────────────────
-    pos_f16 = means.astype(np.float16)
+    means_out = means.copy()
+    means_out[:, 1] = -means[:, 1]
+    pos_f16 = means_out.astype(np.float16)
     
     # Log-scale to uint8 (clamp to reasonable range)
     log_scales = np.log(np.clip(scales, 1e-7, 1e3))

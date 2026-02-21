@@ -92,3 +92,8 @@ test_results*.txt
 
 # Build outputs
 dist/
+
+# Release archives
+*.zip
+SPAG4D_Release.zip
+python_embed/

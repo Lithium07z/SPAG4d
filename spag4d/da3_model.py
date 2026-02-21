@@ -92,7 +92,8 @@ class DA3Model:
     def predict(
         self,
         image: torch.Tensor,
-        return_mask: bool = False
+        return_mask: bool = False,
+        projection_mode: str = "equirectangular"
     ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
         Predict depth from equirectangular image.
@@ -114,12 +115,21 @@ class DA3Model:
         else:
             img_np = (image.cpu().float() * 255).clamp(0, 255).byte().numpy()
 
-        # Run inference — DA3 handles its own resizing internally
-        # Default was 504, which is too low for high-res inputs.
-        # Scale based on input size but cap at 2048 to avoid OOM on 24GB VRAM.
-        # (2048 is 4x the default resolution)
+        if projection_mode in ["cubemap", "icosahedral"]:
+            return self._predict_projected(img_np, H, W, projection_mode)
+        else:
+            return self._predict_single(img_np, H, W)
+
+    def _predict_single(
+        self,
+        img_np: np.ndarray,
+        H: int,
+        W: int,
+        process_res_cap: int = 2048
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """Predict depth for a single image array."""
         max_dim = max(H, W)
-        process_res = min(max_dim, 2048)
+        process_res = min(max_dim, process_res_cap)
         
         prediction = self.model.inference(
             [img_np],
@@ -127,11 +137,9 @@ class DA3Model:
             process_res_method="upper_bound_resize",
         )
 
-        # prediction.depth is [N, H, W] numpy float32
         depth_np = prediction.depth[0]  # [H, W]
         depth = torch.from_numpy(depth_np).to(self.device)
 
-        # Resize to original resolution if DA3 changed it
         if depth.shape[0] != H or depth.shape[1] != W:
             import torch.nn.functional as F
             depth = F.interpolate(
@@ -141,7 +149,6 @@ class DA3Model:
                 align_corners=True,
             ).squeeze()
 
-        # For non-metric variant, scale relative depth to pseudo-metric range
         if not self.is_metric:
             d_min, d_max = depth.min(), depth.max()
             if d_max > d_min:
@@ -150,7 +157,6 @@ class DA3Model:
                 depth_normalized = torch.zeros_like(depth)
             depth = self.depth_min + depth_normalized * (self.depth_max - self.depth_min)
 
-        # DA3 provides confidence maps
         mask = None
         if prediction.conf is not None:
             conf_np = prediction.conf[0]  # [H, W]
@@ -165,3 +171,97 @@ class DA3Model:
                 ).squeeze()
 
         return depth, mask
+
+    def _predict_projected(
+        self,
+        erp_img_np: np.ndarray,
+        H: int,
+        W: int,
+        projection_mode: str
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """Predict depth using projected faces aligned to a global low-res depth map."""
+        from spag4d.projection import get_projector
+        
+        # 1. First, get a global "base" depth prediction to serve as scale/shift calibration.
+        #    We cap the resolution lower (e.g. 1024) to keep it fast, as we only need it for alignment.
+        global_depth, global_mask = self._predict_single(erp_img_np, H, W, process_res_cap=1024)
+        
+        # 2. Get the appropriate projector and project the high-res ERP image
+        # Determine an appropriate face size depending on the input resolution
+        if projection_mode == "cubemap":
+            # 6 faces: roughly 1/4 the equirectangular width
+            face_size = max(512, W // 4)
+        else: # icosahedral
+            # 20 faces: roughly 1/5 the equirectangular width
+            face_size = max(384, W // 5)
+            
+        projector = get_projector(projection_mode, face_size, self.device)
+        faces_rgb_np = projector.project_erp_to_faces(erp_img_np)
+        
+        # Also project the global depth so we can align each face's depth to its region in the global map
+        global_depth_np = global_depth.cpu().numpy()[..., np.newaxis] # [H, W, 1]
+        # We need a float32 dummy "RGB" image for the projection utilities which expect 3 channels usually
+        # But wait, projector.project_erp_to_faces expects np.ndarray. For our projector, it can handle 1 channel or 3
+        # Icosahedral handles [H,W,C] gracefully. Cubemap Equirec2Cube also handles arbitrary channels? 
+        # Actually DAP Equirec2Cube expects [H, W, 3] or [H, W, C]. Let's replicate depth to 3 channels to be safe.
+        global_depth_3c = np.repeat(global_depth_np, 3, axis=-1)
+        faces_global_depth_3c = projector.project_erp_to_faces(global_depth_3c)
+        faces_global_depth = [f[..., 0] for f in faces_global_depth_3c]
+        
+        # 3. Predict high-res depth for each face and align it to the global context
+        aligned_depth_faces_tensors = []
+        face_conf_tensors = []
+        
+        for i in range(len(faces_rgb_np)):
+            face_rgb = faces_rgb_np[i]
+            # predict_single returns [H, W] tensor
+            face_depth_pred, face_conf = self._predict_single(face_rgb, face_size, face_size)
+            face_depth_np = face_depth_pred.cpu().numpy()
+            
+            ref_depth = faces_global_depth[i]
+            
+            # Align face_depth_np to ref_depth using least squares (masking out edges/invalid)
+            # depth_aligned = scale * depth_pred + shift
+            
+            # Use valid cental region for alignment to avoid projection edge artifacts
+            h_f, w_f = face_depth_np.shape
+            margin = int(h_f * 0.1)
+            
+            src_samples = face_depth_np[margin:-margin, margin:-margin].flatten()
+            ref_samples = ref_depth[margin:-margin, margin:-margin].flatten()
+            
+            if len(src_samples) > 100:
+                # Least squares: A * [scale, shift]^T = ref
+                A = np.vstack([src_samples, np.ones(len(src_samples))]).T
+                # Avoid singular matrix issues
+                try:
+                    res = np.linalg.lstsq(A, ref_samples, rcond=None)[0]
+                    scale, shift = res[0], res[1]
+                except np.linalg.LinAlgError:
+                    # Fallback to simple mean translation if ill-conditioned
+                    scale = 1.0
+                    shift = np.mean(ref_samples) - np.mean(src_samples)
+                
+                # Prevent extreme scales which might indicate completely disjoint scenes
+                scale = np.clip(scale, 0.1, 10.0)
+            else:
+                scale, shift = 1.0, 0.0
+                
+            aligned_face_depth_np = (face_depth_np * scale) + shift
+            # Ensure no negative depths
+            aligned_face_depth_np = np.clip(aligned_face_depth_np, 0.01, None) 
+            
+            aligned_face_t = torch.from_numpy(aligned_face_depth_np).float().to(self.device)
+            aligned_depth_faces_tensors.append(aligned_face_t)
+            
+            if face_conf is not None:
+                face_conf_tensors.append(face_conf)
+                
+        # 4. Stitch aligned faces back to ERP
+        stitched_depth = projector.reproject_to_erp(aligned_depth_faces_tensors, H, W)
+        
+        stitched_mask = None
+        if face_conf_tensors and len(face_conf_tensors) == len(faces_rgb_np):
+            stitched_mask = projector.reproject_to_erp(face_conf_tensors, H, W)
+            
+        return stitched_depth, stitched_mask

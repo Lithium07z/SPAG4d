@@ -194,6 +194,7 @@ async def convert_panorama(
     sky_dome: bool = Query(True),
     # Depth model selection
     depth_model: str = Query("panda"),
+    da3_projection: str = Query("equirectangular"),
     guided_filter: bool = Query(True),
     guided_strength: float = Query(1.0, ge=0.0, le=1.0)
 ):
@@ -219,6 +220,7 @@ async def convert_panorama(
     # Store params for feedback
     job.params = {
         "depth_model": depth_model,
+        "da3_projection": da3_projection,
         "guided_filter": guided_filter,
         "guided_strength": guided_strength,
         "sharp_refine": sharp_refine,
@@ -262,7 +264,7 @@ async def convert_panorama(
         job, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
         sharp_refine, sharp_projection, scale_blend, opacity_blend,
         sharp_cubemap_size, sky_threshold, color_blend=color_blend,
-        sky_dome=sky_dome
+        sky_dome=sky_dome, da3_projection=da3_projection
     ))
     
     return JSONResponse({
@@ -286,12 +288,13 @@ async def convert_video(
     duration: Optional[float] = Query(None, gt=0.0),
     temporal_alpha: float = Query(0.3, ge=0.0, le=1.0),
     stabilize_video: bool = Query(False),
-    scale_blend: float = Query(0.8, ge=0.0, le=1.0),
     color_blend: float = Query(0.5, ge=0.0, le=1.0),
     opacity_blend: float = Query(1.0, ge=0.0, le=1.0),
     sharp_cubemap_size: int = Query(1536),
     sky_threshold: float = Query(80.0),
-    sky_dome: bool = Query(True)
+    sky_dome: bool = Query(True),
+    depth_model: str = Query("panda"),
+    da3_projection: str = Query("equirectangular"),
 ):
     """Convert uploaded 360 video to sequence of Gaussian splats."""
     content = await file.read()
@@ -315,7 +318,7 @@ async def convert_video(
         job, fps, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
         sky_threshold,
         start_time, duration, temporal_alpha, stabilize_video, scale_blend, opacity_blend,
-        sharp_cubemap_size, color_blend
+        sharp_cubemap_size, color_blend, da3_projection=da3_projection
     ))
     
     return JSONResponse({
@@ -342,6 +345,7 @@ async def process_job(
     sky_threshold: float = 80.0,
     color_blend: float = 0.5,
     sky_dome: bool = True,
+    da3_projection: str = "equirectangular",
     guided_strength: float = 1.0
 ):
     """Process conversion job with GPU semaphore."""
@@ -392,6 +396,7 @@ async def process_job(
                 sharp_cubemap_size=sharp_cubemap_size,
                 sky_threshold=sky_threshold,
                 sky_dome=sky_dome,
+                da3_projection=da3_projection,
                 guided_strength=guided_strength
             )
             
@@ -413,6 +418,7 @@ async def process_job(
                 color_blend=color_blend,
                 sharp_cubemap_size=sharp_cubemap_size,
                 sky_threshold=sky_threshold,
+                da3_projection=da3_projection,
                 sky_dome=sky_dome
             )
             
@@ -458,6 +464,7 @@ async def process_video_job(
     opacity_blend: float = 1.0,
     sharp_cubemap_size: int = 1536,
     color_blend: float = 0.5,
+    da3_projection: str = "equirectangular",
 ):
     """Process video conversion with batched inference, temporal smoothing, and stabilization."""
     global processor
@@ -533,7 +540,7 @@ async def process_video_job(
                 # Run batched inference
                 with torch.inference_mode():
                     depth_batch, mask_batch = await run_in_threadpool(
-                        processor.dap.predict, batch
+                        processor.dap.predict, batch, da3_projection=da3_projection
                     )
                 
                 # Store results (move to CPU to save VRAM)

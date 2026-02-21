@@ -26,8 +26,10 @@ The result is a dense cloud of 3D Gaussians (tiny colored blobs) that reconstruc
 - **Edge Refine** -- RGB-guided filtering sharpens blurry depth edges using the panorama's own color detail
 - **Sky dome** -- Instead of clipping sky pixels, a backdrop sphere fills the sky so there's no black void when looking around
 - **Depth model choice** -- Switch between PanDA (default, 360°-tuned), DA3 (latest general-purpose), and DAP (legacy)
+- **DA3 Projections** -- Extract DA3 depth via Cube Map or Icosahedron projection, intelligently normalized and stitched.
 - **Standard output** -- PLY files work with gsplat, SuperSplat, and any 3DGS viewer
 - **Compressed output** -- SPLAT format is ~8x smaller for sharing on the web
+- **Preloaded Test Image** -- Easily test the app instantly upon loading the UI
 
 ### SHARP Quality Engine (Enabled by Default)
 - **Maximum detail preservation** -- Low-pass filter tuned to 0.001 (10x more detail than stock SHARP)
@@ -55,13 +57,21 @@ The result is a dense cloud of 3D Gaussians (tiny colored blobs) that reconstruc
 ### What You Need
 
 - A computer running **Windows**, **macOS**, or **Linux**
-- **Python 3.10 or newer** -- [Download here](https://www.python.org/downloads/)
-  - During install on Windows, check the box that says **"Add Python to PATH"**
-- **Git** -- [Download here](https://git-scm.com/downloads)
-- An **NVIDIA GPU** with 8GB+ VRAM is strongly recommended (it will work on CPU, just much slower)
+- **NVIDIA GPU** with 8GB+ VRAM is strongly recommended 
 - About **6 GB of free disk space** (models download automatically on first run)
 
-### Step 1: Download SPAG-4D
+### Windows Quick Install (Recommended)
+
+1. Download the SPAG-4D `.zip` archive.
+2. Extract the folder to your `C:\` drive or Desktop.
+3. Open the folder and double-click `install.bat`.
+   - *This will automatically download an embedded Python distribution, configure CUDA 12.1, and install all models.*
+4. Wait for the terminal window to say "Installation Complete!".
+5. Double-click `run.bat` to start the application.
+
+> **Why Embedded?** This guarantees SPAG-4D won't break your existing system Python installations or conflict with other AI tools.
+
+### Advanced / Linux / Mac Setup (Virtual Environment)
 
 Open a terminal (PowerShell on Windows, Terminal on Mac/Linux) and run:
 
@@ -160,11 +170,11 @@ If you want to convert 360° videos, you also need ffmpeg:
 
 ### Web UI (Easiest)
 
-1. Start the server:
+1. Start the server (Windows):
    ```
-   .\start_spag4d.bat
+   run.bat
    ```
-   Or manually:
+   Or manually via CLI:
    ```
    python -m spag4d.cli serve --port 7860
    ```
@@ -264,6 +274,8 @@ converter_fast = SPAG4D(
 | `global_scale` | 1.0 | Multiply all depths by this value to fix scale issues |
 | `depth_min` | 0.1 | Ignore anything closer than this (meters) |
 | `depth_max` | 100.0 | Ignore anything farther than this (meters) |
+| `depth_model` | panda | `da3`, `panda`, or `dap` |
+| `da3_projection` | equirectangular | If using `da3`, process depth using `cubemap` or `icosahedral` patches |
 | `sky_threshold` | 80.0 | Remove points beyond this distance (cuts out sky artifacts) |
 | `sky_dome` | **True** | Generate a distant backdrop sphere from sky pixels instead of deleting them |
 | `format` | ply | Output format: `ply`, `splat`, or `both` |
