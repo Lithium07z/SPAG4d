@@ -32,6 +32,8 @@ echo [3/4] Configuring Embedded Python...
 :: Uncomment the import site line in the ._pth file to allow pip to work
 set "PTH_FILE=%PYTHON_DIR%\python311._pth"
 powershell -Command "(Get-Content '%PTH_FILE%') -replace '#import site', 'import site' | Set-Content '%PTH_FILE%'"
+:: Add the parent directory so app imports (like api.py) work
+powershell -Command "Add-Content -Path '%PTH_FILE%' -Value '..'"
 
 echo [4/4] Installing pip...
 powershell -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile '%PYTHON_DIR%\get-pip.py'"
@@ -73,3 +75,4 @@ echo   Installation Complete!
 echo   You can now double-click 'run.bat' to start!
 echo ==================================================
 echo Done
+ 
