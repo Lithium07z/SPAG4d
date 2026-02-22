@@ -244,7 +244,10 @@ async def convert_panorama(
             )
             print(f"Switched to depth model: {depth_model}")
         except Exception as e:
+            # Clean up the pending job so it doesn't get stuck in the queue
+            del jobs[job_id]
             print(f"Failed to switch depth model to {depth_model}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     # Determine file extension
     suffix = Path(file.filename).suffix if file.filename else '.jpg'
@@ -306,6 +309,22 @@ async def convert_video(
     job.is_video = True
     jobs[job_id] = job
     
+    # Re-initialize processor if depth model changed
+    global processor
+    if depth_model != processor.depth_model_name:
+        try:
+            processor = SPAG4D(
+                device="cuda",
+                depth_model=depth_model,
+                use_guided_filter=True, # Video doesn't have a UI toggle for this, assume true
+            )
+            print(f"Switched to depth model: {depth_model}")
+        except Exception as e:
+            # Clean up the pending job so it doesn't get stuck in the queue
+            del jobs[job_id]
+            print(f"Failed to switch depth model to {depth_model}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+            
     # Save input video
     suffix = Path(file.filename).suffix if file.filename else '.mp4'
     job.input_path = TEMP_DIR / f"{job_id}_input{suffix}"
@@ -363,14 +382,15 @@ async def process_job(
                 width, height = img.size
             
             effective_stride = stride
-            if width > 6000:
-                # 6K+ images: minimum stride 4 (DAP input is now capped at 4096px)
-                effective_stride = max(stride, 4)
-                print(f"⚠️ High-res image ({width}x{height}), using stride={effective_stride}")
-            elif width > 4096:
-                # 4K-6K images: minimum stride 2
-                effective_stride = max(stride, 2)
-                print(f"⚠️ Large image ({width}x{height}), using stride={effective_stride}")
+            # panda/dap process the full ERP in one pass — cap stride at 4 on 8K+ to
+            # avoid OOM.  DA3 projects into face tiles so it handles resolution itself.
+            if depth_model in ("panda", "dap"):
+                if width > 6000:
+                    effective_stride = max(stride, 4)
+                    print(f"⚠️ High-res image ({width}x{height}), using stride={effective_stride}")
+                elif width > 4096:
+                    effective_stride = max(stride, 2)
+                    print(f"⚠️ Large image ({width}x{height}), using stride={effective_stride}")
             
             # Store adjusted stride in params for user feedback
             if effective_stride != stride:

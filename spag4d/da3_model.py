@@ -8,7 +8,8 @@ monocular depth, multi-view depth, pose estimation, and Gaussian prediction.
 For SPAG-4D we use DA3Metric-Large for metric depth output (real-world scale)
 or DA3Mono-Large for relative depth (similar to PanDA).
 
-Install: pip install -e "git+https://github.com/ByteDance-Seed/depth-anything-3.git#egg=depth_anything_3"
+Depth Anything V3 Integration
+Install: pip install --no-deps https://github.com/ByteDance-Seed/depth-anything-3/archive/refs/heads/main.zip
 Reference: https://github.com/ByteDance-Seed/Depth-Anything-3
 """
 
@@ -71,12 +72,12 @@ class DA3Model:
         """
         try:
             from depth_anything_3.api import DepthAnything3
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
                 "Depth Anything V3 not installed. Install with:\n"
-                '  pip install -e "git+https://github.com/ByteDance-Seed/depth-anything-3.git#egg=depth_anything_3"\n'
+                '  pip install --no-deps https://github.com/ByteDance-Seed/depth-anything-3/archive/refs/heads/main.zip\n'
                 "Or: pip install depth-anything-3"
-            )
+            ) from exc
 
         model_id = DA3_MODELS.get(variant)
         if model_id is None:
@@ -208,54 +209,62 @@ class DA3Model:
         faces_global_depth_3c = projector.project_erp_to_faces(global_depth_3c)
         faces_global_depth = [f[..., 0] for f in faces_global_depth_3c]
         
-        # 3. Predict high-res depth for each face and align it to the global context
-        aligned_depth_faces_tensors = []
+        # 3. Predict high-res depth for each face
+        raw_face_depths = []
         face_conf_tensors = []
-        
         for i in range(len(faces_rgb_np)):
             face_rgb = faces_rgb_np[i]
-            # predict_single returns [H, W] tensor
             face_depth_pred, face_conf = self._predict_single(face_rgb, face_size, face_size)
-            face_depth_np = face_depth_pred.cpu().numpy()
-            
-            ref_depth = faces_global_depth[i]
-            
-            # Align face_depth_np to ref_depth using least squares (masking out edges/invalid)
-            # depth_aligned = scale * depth_pred + shift
-            
-            # Use valid cental region for alignment to avoid projection edge artifacts
-            h_f, w_f = face_depth_np.shape
-            margin = int(h_f * 0.1)
-            
-            src_samples = face_depth_np[margin:-margin, margin:-margin].flatten()
-            ref_samples = ref_depth[margin:-margin, margin:-margin].flatten()
-            
-            if len(src_samples) > 100:
-                # Least squares: A * [scale, shift]^T = ref
-                A = np.vstack([src_samples, np.ones(len(src_samples))]).T
-                # Avoid singular matrix issues
-                try:
-                    res = np.linalg.lstsq(A, ref_samples, rcond=None)[0]
-                    scale, shift = res[0], res[1]
-                except np.linalg.LinAlgError:
-                    # Fallback to simple mean translation if ill-conditioned
-                    scale = 1.0
-                    shift = np.mean(ref_samples) - np.mean(src_samples)
-                
-                # Prevent extreme scales which might indicate completely disjoint scenes
-                scale = np.clip(scale, 0.1, 10.0)
-            else:
-                scale, shift = 1.0, 0.0
-                
-            aligned_face_depth_np = (face_depth_np * scale) + shift
-            # Ensure no negative depths
-            aligned_face_depth_np = np.clip(aligned_face_depth_np, 0.01, None) 
-            
-            aligned_face_t = torch.from_numpy(aligned_face_depth_np).float().to(self.device)
-            aligned_depth_faces_tensors.append(aligned_face_t)
-            
+            raw_face_depths.append(face_depth_pred.cpu().numpy())
             if face_conf is not None:
                 face_conf_tensors.append(face_conf)
+
+        # 3b. Alignment strategy depends on the model variant:
+        #
+        #  - "metric" (DA3Metric): each face already outputs real-world metres.
+        #    Alignment to the global map would de-calibrate the scale (because the
+        #    low-res global prediction has the same metric uncertainty).  Skip it.
+        #
+        #  - "mono" (DA3Mono / relative): depths are up-to-a-scale, so we fit a
+        #    single global (scale, shift) across all faces to anchor them to the
+        #    low-res prediction, ensuring inter-face continuity.
+
+        if self.is_metric:
+            # Metric: use per-face depths directly (already in metres)
+            global_scale, global_shift = 1.0, 0.0
+        else:
+            # Mono: fit ONE global affine from combined face samples to the global depth
+            all_src_samples = []
+            all_ref_samples = []
+            for i, face_depth_np in enumerate(raw_face_depths):
+                h_f, w_f = face_depth_np.shape
+                margin = int(h_f * 0.1)
+                all_src_samples.append(face_depth_np[margin:-margin, margin:-margin].flatten())
+                all_ref_samples.append(faces_global_depth[i][margin:-margin, margin:-margin].flatten())
+
+            src_all = np.concatenate(all_src_samples)
+            ref_all = np.concatenate(all_ref_samples)
+
+            if len(src_all) > 100:
+                A = np.vstack([src_all, np.ones(len(src_all))]).T
+                try:
+                    res = np.linalg.lstsq(A, ref_all, rcond=None)[0]
+                    global_scale, global_shift = float(res[0]), float(res[1])
+                except np.linalg.LinAlgError:
+                    global_scale = 1.0
+                    global_shift = float(np.mean(ref_all) - np.mean(src_all))
+                global_scale = float(np.clip(global_scale, 0.1, 10.0))
+            else:
+                global_scale, global_shift = 1.0, 0.0
+
+        # 3c. Apply uniform alignment to every face (scale=1, shift=0 for metric)
+        aligned_depth_faces_tensors = []
+        for face_depth_np in raw_face_depths:
+            aligned = np.clip(face_depth_np * global_scale + global_shift, 0.01, None)
+            aligned_depth_faces_tensors.append(
+                torch.from_numpy(aligned).float().to(self.device)
+            )
+
                 
         # 4. Stitch aligned faces back to ERP
         stitched_depth = projector.reproject_to_erp(aligned_depth_faces_tensors, H, W)

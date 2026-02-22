@@ -10,58 +10,82 @@ import sys
 import os
 from pathlib import Path
 
-# Get the DAP directory path
+# Get the DAP directory path (resolved at import time so it's always absolute)
 DAP_DIR = Path(__file__).parent / "DAP"
 
-# Add DAP subdirectory and its subdirectories to path for imports
-if DAP_DIR.exists():
-    # Add main DAP dir
-    if str(DAP_DIR) not in sys.path:
-        sys.path.insert(0, str(DAP_DIR))
-    
-    # Add depth_anything_v2_metric
+
+def _ensure_dap_on_path():
+    """Ensure DAP directories are on sys.path (idempotent)."""
+    if not DAP_DIR.exists():
+        return
+
+    dap_str = str(DAP_DIR)
+    if dap_str not in sys.path:
+        sys.path.insert(0, dap_str)
+
     depth_metric_dir = DAP_DIR / "depth_anything_v2_metric"
-    if depth_metric_dir.exists() and str(depth_metric_dir) not in sys.path:
-        sys.path.insert(0, str(depth_metric_dir))
-    
-    # Change working directory temporarily to DAP_DIR for relative path imports
-    _original_cwd = os.getcwd()
+    if depth_metric_dir.exists():
+        dm_str = str(depth_metric_dir)
+        if dm_str not in sys.path:
+            sys.path.insert(0, dm_str)
+
+
+def _flush_dap_module_cache():
+    """
+    Remove any stale/failed DAP module imports from sys.modules.
+
+    Python caches failed module lookups. If another model (e.g. PanDA) was
+    loaded first and the DAP path wasn't yet on sys.path when Python tried to
+    resolve 'networks.*', the failed result gets cached. This purges those
+    entries so a fresh import attempt uses the now-correct sys.path.
+    """
+    stale_prefixes = ('networks', 'depth_anything_v2_metric', 'dap')
+    for key in list(sys.modules.keys()):
+        for prefix in stale_prefixes:
+            if key == prefix or key.startswith(prefix + '.'):
+                del sys.modules[key]
+                break
+
+
+# Eagerly add to path at import time (handles the common case)
+_ensure_dap_on_path()
 
 
 def build_dap_model(max_depth: float = 100.0):
     """
     Build DAP model architecture.
-    
+
     Args:
         max_depth: Maximum depth in meters for metric output
-    
+
     Returns:
         nn.Module: DAP model ready for weight loading
     """
-    import os
-    
-    # Save original working directory
+    # Re-ensure path (survives uvicorn --reload re-imports)
+    _ensure_dap_on_path()
+    # Purge any stale cached imports that may have been poisoned before the
+    # path was correctly set (e.g. PanDA was loaded as the default model first)
+    _flush_dap_module_cache()
+
     original_cwd = os.getcwd()
-    
+
     try:
-        # Change to DAP directory so relative paths work
+        # Change to DAP directory so any internal relative-path config works
         os.chdir(str(DAP_DIR))
-        
+
         from argparse import Namespace
-        
-        # Import DAP components
         from networks.dap import DAP
-        
+
         args = Namespace()
         args.midas_model_type = 'vitl'
         args.fine_tune_type = 'none'
         args.min_depth = 0.001
         args.max_depth = max_depth
         args.train_decoder = False
-        
+
         model = DAP(args)
         return model
-        
+
     except ImportError as e:
         raise ImportError(
             f"Failed to import DAP model: {e}\n\n"
