@@ -51,8 +51,8 @@ download = [
     "huggingface_hub>=0.20",
 ]
 sharp = [
-    # ml-sharp is not on PyPI - install manually before using this extra:
-    # pip install git+https://github.com/apple/ml-sharp.git
+    # ml-sharp is a pure PyTorch inference repo.
+    # pip install --no-deps https://github.com/apple/ml-sharp/archive/refs/heads/main.zip
 ]
 all = [
     "spag4d[server,download,sharp]",

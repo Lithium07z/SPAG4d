@@ -129,17 +129,21 @@ pip install -e ".[server,download]"
 
 This installs the core tool plus the web interface.
 
-### Step 5: Install SHARP (Highly Recommended)
-
-SHARP is what gives SPAG-4D its best quality output. It is enabled by default, but needs to be installed separately because it comes from Apple's GitHub:
-
+### Optional: SHARP Refinement
+For maximum quality, install Apple's ML-SHARP manually:
+```bash
+pip install --no-deps https://github.com/apple/ml-sharp/archive/refs/heads/main.zip
 ```
-pip install git+https://github.com/apple/ml-sharp.git
+
+### Optional: Depth Anything V3
+To use the newest state-of-the-art depth model:
+```bash
+pip install --no-deps https://github.com/ByteDance-Seed/depth-anything-3/archive/refs/heads/main.zip
 ```
 
 The SHARP model weights (~3 GB) download automatically the first time you run a conversion.
 
-To verify it installed correctly:
+To verify SHARP installed correctly:
 ```
 python -c "import sharp; print('SHARP installed successfully')"
 ```
@@ -156,13 +160,14 @@ If you want to convert 360° videos, you also need ffmpeg:
 
 ### Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
+| Issue | Solution |
+| :--- | :--- |
 | `No module named 'spag4d.dap_arch.DAP.networks'` | Run `git submodule update --init --recursive` |
 | `python` or `pip` not found | Reinstall Python and make sure "Add to PATH" is checked |
 | PowerShell blocks `.venv` activation | Run the `Set-ExecutionPolicy` command shown above |
 | Out of GPU memory | Use a higher `stride` value (4 or 8) or use `--sharp-cubemap-size 768` |
-| SHARP not found warning | Run `pip install git+https://github.com/apple/ml-sharp.git` |
+| SHARP not found warning | Run `pip install --no-deps https://github.com/apple/ml-sharp/archive/refs/heads/main.zip` |
+| DA3 Model fails to load | Run `pip install --no-deps https://github.com/ByteDance-Seed/depth-anything-3/archive/refs/heads/main.zip` |
 
 ---
 

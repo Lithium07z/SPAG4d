@@ -111,7 +111,7 @@ class SPAG4D:
                 import warnings
                 warnings.warn(
                     "SHARP not available. Install with: "
-                    "pip install git+https://github.com/apple/ml-sharp.git "
+                    "pip install --no-deps https://github.com/apple/ml-sharp/archive/refs/heads/main.zip "
                     "Falling back to geometric-only Gaussians."
                 )
         self.sharp_cubemap_size = sharp_cubemap_size
