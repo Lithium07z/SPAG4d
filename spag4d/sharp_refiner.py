@@ -357,34 +357,46 @@ class SHARPRefiner:
         gaussians,  # Gaussians3D
         grid_size: int
     ) -> torch.Tensor:
-        """Extract opacity as 2D map from SHARP output."""
+        """Extract opacity as 2D map from SHARP output.
+        
+        Preserves SHARP's dual-layer design: front layer = surface,
+        back layer = what's behind thin structures. Instead of averaging
+        both (which loses the layering), we use the front layer primarily
+        and blend in the back layer only where they strongly disagree
+        (indicating thin/semi-transparent geometry).
+        """
         # gaussians.opacities: [B, N]
         # SHARP uses 2 layers, so N = grid_size^2 * 2
         opacities = gaussians.opacities[0]  # [N]
 
-        # Reshape to [2, grid_size, grid_size] and take mean across layers
         n_layers = 2
         per_layer = grid_size * grid_size
 
         if opacities.shape[0] == per_layer * n_layers:
             opacities = opacities.view(n_layers, grid_size, grid_size)
-            opacities = opacities.mean(dim=0)  # [grid_size, grid_size]
+            front = opacities[0]  # [grid_size, grid_size]
+            back  = opacities[1]
+            # Thin-structure indicator: large difference between layers
+            # means something is in front of something else (foliage, fence, etc.)
+            thin_weight = torch.abs(front - back).clamp(0, 1)  # [0,1]
+            opacities = front * (1 - 0.5 * thin_weight) + back * (0.5 * thin_weight)
         else:
             # Fallback: interpolate to grid if size mismatch
-            # This handles cases where model might output different resolution
             N = opacities.shape[0]
             side = int(np.sqrt(N // n_layers))
             if side * side * n_layers == N:
                 opacities = opacities.view(n_layers, side, side)
-                opacities = opacities.mean(dim=0)
+                front = opacities[0]
+                back  = opacities[1]
+                thin_weight = torch.abs(front - back).clamp(0, 1)
+                opacities = front * (1 - 0.5 * thin_weight) + back * (0.5 * thin_weight)
                 if side != grid_size:
                     opacities = F.interpolate(
-                        opacities.unsqueeze(0).unsqueeze(0), 
+                        opacities.unsqueeze(0).unsqueeze(0),
                         size=(grid_size, grid_size),
                         mode='bilinear'
                     ).squeeze()
             else:
-                 # Last resort flat interpolation
                 opacities = opacities.view(1, 1, -1, 1)
                 opacities = F.interpolate(opacities, size=(grid_size, grid_size))
                 opacities = opacities.squeeze()
@@ -396,7 +408,11 @@ class SHARPRefiner:
         gaussians,  # Gaussians3D
         grid_size: int
     ) -> torch.Tensor:
-        """Extract scales as 2D map from SHARP output."""
+        """Extract scales as 2D map from SHARP output.
+        
+        Uses front layer as surface scale; blends back layer where
+        the two layers disagree significantly (thin structures).
+        """
         # gaussians.singular_values: [B, N, 3]
         scales = gaussians.singular_values[0]  # [N, 3]
 
@@ -405,7 +421,12 @@ class SHARPRefiner:
 
         if scales.shape[0] == per_layer * n_layers:
             scales = scales.view(n_layers, grid_size, grid_size, 3)
-            scales = scales.mean(dim=0)  # [grid_size, grid_size, 3]
+            front = scales[0]  # [grid_size, grid_size, 3]
+            back  = scales[1]
+            # Use front layer; reduce size at thin-structure regions where
+            # the two layers hold different geometry
+            diff = (front - back).abs().mean(dim=-1, keepdim=True).clamp(0, 1)
+            scales = front * (1 - 0.3 * diff) + back * (0.3 * diff)
         else:
             # Fallback
             scales = scales.view(1, -1, 1, 3).permute(0, 3, 1, 2)

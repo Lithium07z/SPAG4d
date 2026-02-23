@@ -117,25 +117,31 @@ def equirect_to_gaussians(
     means = depth.unsqueeze(-1) * grid.rhat
     
     # ─────────────────────────────────────────────────────────────────
-    # Anisotropic Scale (latitude-aware)
+    # Anisotropic Scale (latitude-aware, content-adaptive)
     # ─────────────────────────────────────────────────────────────────
     # Angular extent per pixel
     delta_theta = 2 * math.pi / W  # Horizontal angular width
     delta_phi = math.pi / H        # Vertical angular height
-    
+
     # sin(φ) compensates for ERP distortion at poles
     sin_phi = torch.sin(grid.phi).clamp(min=0.01)  # Avoid zero at poles
-    
+
+    # Content-adaptive scale: image gradient → smaller Gaussians in textured/edge
+    # areas for detail, larger ones in smooth regions for efficiency.
+    img_gray = colors.mean(dim=-1)  # [H_grid, W_grid]
+    gx = F.pad((img_gray[:, 1:] - img_gray[:, :-1]).abs(), (0, 1))
+    gy = F.pad((img_gray[1:, :] - img_gray[:-1, :]).abs(), (1, 0))
+    img_grad = torch.sqrt(gx ** 2 + gy ** 2)
+    # detail_factor ∈ [0.3, 1.0]: high gradient → smaller Gaussians
+    detail_factor = (1.0 / (1.0 + img_grad * 5.0)).clamp(0.3, 1.0)
+
     # Tangent plane footprint at distance d
-    # s_azimuth: horizontal extent (varies with latitude)
-    s_azimuth = scale_factor * depth * sin_phi * delta_theta * stride
-    
-    # s_elevation: vertical extent (constant with latitude in ERP)
-    s_elevation = scale_factor * depth * delta_phi * stride
-    
+    s_azimuth   = scale_factor * depth * sin_phi * delta_theta * stride * detail_factor
+    s_elevation = scale_factor * depth * delta_phi * stride * detail_factor
+
     # s_normal: thin in radial direction
     s_normal = torch.minimum(s_azimuth, s_elevation) * thickness_ratio
-    
+
     # Stack: [azimuth, elevation, normal]
     scales = torch.stack([s_azimuth, s_elevation, s_normal], dim=-1)
     
@@ -165,7 +171,16 @@ def equirect_to_gaussians(
     colors_flat = colors.reshape(-1, 3)[valid_flat]
     
     N = means_flat.shape[0]
-    opacities_flat = torch.full((N, 1), default_opacity, device=device)
+
+    # Depth-gradient adaptive opacity: smooth surfaces → high opacity,
+    # depth discontinuities (object edges) → lower opacity.
+    # This reduces the "paper cutout" look where depth jumps sharply.
+    dx = F.pad(depth[:, 1:] - depth[:, :-1], (0, 1))
+    dy = F.pad(depth[1:, :] - depth[:-1, :], (1, 0))
+    depth_grad = torch.sqrt(dx ** 2 + dy ** 2) / depth.clamp(min=0.1)
+    # opacity ∈ [0.49, 0.99]: edges get ~0.49, smooth surfaces get ~0.99
+    opacity_map = (0.99 - 0.5 * torch.sigmoid(depth_grad * 10 - 3)).clamp(0.01, 0.99)
+    opacities_flat = opacity_map.flatten()[valid_flat].unsqueeze(-1)
     
     return {
         'means': means_flat,
@@ -442,19 +457,25 @@ def equirect_to_gaussians_refined(
             opacity_blend * ref_opacities_flat
         ).clamp(0.01, 0.99)
 
-    # Refine Scales
+    # Refine Scales (confidence-weighted: SHARP's opacity output proxies its confidence)
     if refined_attrs.scales is not None and scale_blend > 0:
-        ref_scales_flat = sample_map(refined_attrs.scales, 3)
-        
-        # SHARP scales are in perspective space.
-        # We treat them as a refinement multiplier for our geometric scales.
-        # Normalize by mean to get relative variation
+        ref_scales_flat  = sample_map(refined_attrs.scales, 3)
+        ref_opacity_flat = sample_map(refined_attrs.opacities, 1) if refined_attrs.opacities is not None else None
+
+        # Normalize SHARP scales to get relative variation multiplier
         scale_mult = ref_scales_flat / (ref_scales_flat.mean() + 1e-6)
         scale_mult = scale_mult.clamp(0.5, 2.0)
-        
+
+        if ref_opacity_flat is not None:
+            # High SHARP opacity → confident surface → allow stronger SHARP influence
+            confidence = ref_opacity_flat.clamp(0.1, 0.9)  # [N, 1]
+            adaptive_blend = (scale_blend * confidence).clamp(0.0, 1.0)
+        else:
+            adaptive_blend = scale_blend
+
         base_gaussians['scales'] = (
-            (1 - scale_blend) * base_gaussians['scales'] +
-            scale_blend * base_gaussians['scales'] * scale_mult
+            (1 - adaptive_blend) * base_gaussians['scales'] +
+            adaptive_blend * base_gaussians['scales'] * scale_mult
         )
 
     # Refine Colors (blend with source to preserve fidelity)
