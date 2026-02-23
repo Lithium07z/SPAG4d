@@ -384,7 +384,7 @@ async def process_job(
             effective_stride = stride
             # panda/dap process the full ERP in one pass — cap stride at 4 on 8K+ to
             # avoid OOM.  DA3 projects into face tiles so it handles resolution itself.
-            if depth_model in ("panda", "dap"):
+            if processor.depth_model_name in ("panda", "dap"):
                 if width > 6000:
                     effective_stride = max(stride, 4)
                     print(f"⚠️ High-res image ({width}x{height}), using stride={effective_stride}")

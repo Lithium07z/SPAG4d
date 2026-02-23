@@ -48,30 +48,48 @@ def equirect_to_gaussians(
             colors: [N, 3] RGB colors [0, 1]
             opacities: [N, 1] Opacity values
     """
+    import torch.nn.functional as F
+
     device = grid.device
     H, W = grid.original_H, grid.original_W
     stride = grid.stride
-    
+
     # Convert image to float if needed
     if image.dtype == torch.uint8:
         colors = image.float() / 255.0
     else:
         colors = image.clone()
-    
-    # Downsample image to match grid
+
+    # Downsample to match grid — anti-aliased to avoid Moiré at stride ≥ 2.
+    # Colors: area average; Depth: min-pool so foreground edges are preserved.
     H_grid, W_grid = grid.theta.shape
     if colors.shape[0] != H_grid or colors.shape[1] != W_grid:
-        # Use strided sampling (not interpolation for speed)
-        colors = colors[stride//2::stride, stride//2::stride]
-    
-    # Ensure depth matches grid dimensions
+        if stride > 1:
+            colors = F.avg_pool2d(
+                colors.permute(2, 0, 1).unsqueeze(0), stride, stride
+            ).squeeze(0).permute(1, 2, 0)
+        else:
+            colors = colors[::stride, ::stride]
+
     if depth.shape[0] != H_grid or depth.shape[1] != W_grid:
-        depth = depth[stride//2::stride, stride//2::stride]
-    
+        if stride > 1:
+            # Min-pool: foreground (closest) depth wins within each strided cell
+            d4 = -depth.unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
+            p = -F.max_pool2d(d4, kernel_size=stride, stride=stride)  # [1, 1, H', W']
+            depth = p.reshape(p.shape[2], p.shape[3])  # [H', W']
+        else:
+            depth = depth[::stride, ::stride]
+
     # Downsample validity_mask to match grid if provided
     if validity_mask is not None:
         if validity_mask.shape[0] != H_grid or validity_mask.shape[1] != W_grid:
-            validity_mask = validity_mask[stride//2::stride, stride//2::stride]
+            if stride > 1:
+                # Any valid pixel in cell → cell is valid (max-pool)
+                vm = validity_mask.float().unsqueeze(0).unsqueeze(0)
+                p_vm = F.max_pool2d(vm, kernel_size=stride, stride=stride)
+                validity_mask = p_vm.reshape(p_vm.shape[2], p_vm.shape[3]) > 0.5
+            else:
+                validity_mask = validity_mask[::stride, ::stride]
     
     # ─────────────────────────────────────────────────────────────────
     # Validity Mask
@@ -226,10 +244,21 @@ def generate_sky_dome(
         colors = image.clone()
     
     if colors.shape[0] != H_grid or colors.shape[1] != W_grid:
-        colors = colors[stride//2::stride, stride//2::stride]
-    
+        if stride > 1:
+            colors = F.avg_pool2d(
+                colors.permute(2, 0, 1).unsqueeze(0),
+                kernel_size=stride, stride=stride
+            ).squeeze(0).permute(1, 2, 0)
+        else:
+            colors = colors[::stride, ::stride]
+
     if depth.shape[0] != H_grid or depth.shape[1] != W_grid:
-        depth = depth[stride//2::stride, stride//2::stride]
+        if stride > 1:
+            d4 = -depth.unsqueeze(0).unsqueeze(0)
+            pooled = -F.max_pool2d(d4, kernel_size=stride, stride=stride)
+            depth = pooled.reshape(pooled.shape[2], pooled.shape[3])
+        else:
+            depth = depth[::stride, ::stride]
     
     # Sky mask: pixels beyond threshold
     sky_mask = depth >= sky_threshold
