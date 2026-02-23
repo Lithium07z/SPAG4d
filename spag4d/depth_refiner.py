@@ -83,20 +83,17 @@ class GuidedDepthRefiner:
         # Convert back to tensor
         result = torch.from_numpy(result_np).to(device)
 
-        # Preserve the original depth range (filtering can shift values slightly)
-        # Scale result to match original min/max
-        orig_min, orig_max = depth.min(), depth.max()
-        result_min, result_max = result.min(), result.max()
-
-        if result_max > result_min:
-            result = (result - result_min) / (result_max - result_min)
-            result = result * (orig_max - orig_min) + orig_min
+        # Do NOT globally rescale result to match original min/max — that would
+        # undo the local edge sharpening that guided filtering was supposed to
+        # provide (sharpening one edge forces every other depth to shift).
+        # The strength blend below is sufficient for range preservation.
 
         # Apply strength blending
         if strength < 1.0:
             result = result * strength + depth * (1.0 - strength)
 
         return result
+
 
     def _try_opencv_guided_filter(
         self,

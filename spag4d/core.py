@@ -111,7 +111,7 @@ class SPAG4D:
                 import warnings
                 warnings.warn(
                     "SHARP not available. Install with: "
-                    "pip install git+https://github.com/apple/ml-sharp.git "
+                    "pip install --no-deps https://github.com/apple/ml-sharp/archive/refs/heads/main.zip "
                     "Falling back to geometric-only Gaussians."
                 )
         self.sharp_cubemap_size = sharp_cubemap_size
@@ -136,6 +136,7 @@ class SPAG4D:
         force_erp: bool = False,
         depth_preview_path: Optional[Union[str, Path]] = None,
         depth_override: Optional[np.ndarray] = None,  # MODIFIED: depth_override
+        da3_projection: str = "equirectangular",
         **kwargs
     ) -> ConversionResult:
         """
@@ -203,7 +204,10 @@ class SPAG4D:
         else:
             # Estimate depth with depth model (PanDA, DAP, or mock)
             with torch.inference_mode():
-                depth, validity_mask = self.dap.predict(image_tensor)
+                if self.depth_model_name == "da3":
+                    depth, validity_mask = self.dap.predict(image_tensor, projection_mode=da3_projection)
+                else:
+                    depth, validity_mask = self.dap.predict(image_tensor)
         
         # Apply RGB-guided depth edge refinement
         if self.guided_refiner is not None:

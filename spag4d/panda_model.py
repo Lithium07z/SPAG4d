@@ -39,11 +39,12 @@ class PanDAModel:
     and outputs relative depth (0-1) which is scaled to a configurable range.
     """
 
-    def __init__(self, model: nn.Module, device: torch.device, depth_min: float = 0.1, depth_max: float = 100.0):
+    def __init__(self, model: nn.Module, device: torch.device, depth_min: float = 0.1, depth_max: float = 100.0, depth_mapping: str = "log"):
         self.model = model
         self.device = device
         self.depth_min = depth_min
         self.depth_max = depth_max
+        self.depth_mapping = depth_mapping  # "log", "linear", or "inverse"
         self.model.eval()
 
     @classmethod
@@ -53,6 +54,7 @@ class PanDAModel:
         device: torch.device = torch.device('cuda'),
         depth_min: float = 0.1,
         depth_max: float = 100.0,
+        depth_mapping: str = "log",
     ) -> 'PanDAModel':
         """
         Load PanDA model from path or download from HuggingFace.
@@ -104,7 +106,7 @@ class PanDAModel:
         model.load_state_dict(new_state_dict, strict=False)
         model = model.to(device)
 
-        return cls(model, device, depth_min, depth_max)
+        return cls(model, device, depth_min, depth_max, depth_mapping)
 
     @classmethod
     def _get_or_download_weights(cls) -> str:
@@ -267,9 +269,9 @@ class PanDAModel:
                 align_corners=True
             ).squeeze(1)
 
-        # Scale relative depth (0-1) to pseudo-metric range
-        # PanDA outputs: higher value = farther away
-        # Normalize to [0, 1] range first (model output may not be exactly 0-1)
+        # Scale relative depth (0-1) to pseudo-metric range.
+        # PanDA outputs: higher value = farther away.
+        # Normalize to [0, 1] first (model output may not be exactly 0-1).
         depth_min_val = depth.min()
         depth_max_val = depth.max()
         if depth_max_val > depth_min_val:
@@ -277,8 +279,23 @@ class PanDAModel:
         else:
             depth_normalized = torch.zeros_like(depth)
 
-        # Map to pseudo-metric range
-        depth = self.depth_min + depth_normalized * (self.depth_max - self.depth_min)
+        # Map to pseudo-metric range using the configured mapping.
+        # Log-space preserves foreground detail: each order of magnitude
+        # (0.1–1m, 1–10m, 10–100m) gets equal representation.
+        if self.depth_mapping == "log":
+            import math
+            log_min = math.log(self.depth_min)
+            log_max = math.log(self.depth_max)
+            depth = torch.exp(log_min + depth_normalized * (log_max - log_min))
+        elif self.depth_mapping == "inverse":
+            # Disparity-linear (matches monocular model training signal)
+            inv_max = 1.0 / self.depth_min
+            inv_min = 1.0 / self.depth_max
+            inv_depth = inv_max - depth_normalized * (inv_max - inv_min)
+            depth = 1.0 / inv_depth.clamp(min=1e-6)
+        else:
+            # Linear (legacy behaviour)
+            depth = self.depth_min + depth_normalized * (self.depth_max - self.depth_min)
 
         # Remove batch dim for single image input
         if not is_batched:
@@ -288,3 +305,4 @@ class PanDAModel:
         mask = None
 
         return depth, mask
+

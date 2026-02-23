@@ -194,6 +194,7 @@ async def convert_panorama(
     sky_dome: bool = Query(True),
     # Depth model selection
     depth_model: str = Query("panda"),
+    da3_projection: str = Query("equirectangular"),
     guided_filter: bool = Query(True),
     guided_strength: float = Query(1.0, ge=0.0, le=1.0)
 ):
@@ -219,6 +220,7 @@ async def convert_panorama(
     # Store params for feedback
     job.params = {
         "depth_model": depth_model,
+        "da3_projection": da3_projection,
         "guided_filter": guided_filter,
         "guided_strength": guided_strength,
         "sharp_refine": sharp_refine,
@@ -242,7 +244,10 @@ async def convert_panorama(
             )
             print(f"Switched to depth model: {depth_model}")
         except Exception as e:
+            # Clean up the pending job so it doesn't get stuck in the queue
+            del jobs[job_id]
             print(f"Failed to switch depth model to {depth_model}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     # Determine file extension
     suffix = Path(file.filename).suffix if file.filename else '.jpg'
@@ -262,7 +267,7 @@ async def convert_panorama(
         job, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
         sharp_refine, sharp_projection, scale_blend, opacity_blend,
         sharp_cubemap_size, sky_threshold, color_blend=color_blend,
-        sky_dome=sky_dome
+        sky_dome=sky_dome, da3_projection=da3_projection
     ))
     
     return JSONResponse({
@@ -286,12 +291,13 @@ async def convert_video(
     duration: Optional[float] = Query(None, gt=0.0),
     temporal_alpha: float = Query(0.3, ge=0.0, le=1.0),
     stabilize_video: bool = Query(False),
-    scale_blend: float = Query(0.8, ge=0.0, le=1.0),
     color_blend: float = Query(0.5, ge=0.0, le=1.0),
     opacity_blend: float = Query(1.0, ge=0.0, le=1.0),
     sharp_cubemap_size: int = Query(1536),
     sky_threshold: float = Query(80.0),
-    sky_dome: bool = Query(True)
+    sky_dome: bool = Query(True),
+    depth_model: str = Query("panda"),
+    da3_projection: str = Query("equirectangular"),
 ):
     """Convert uploaded 360 video to sequence of Gaussian splats."""
     content = await file.read()
@@ -303,6 +309,22 @@ async def convert_video(
     job.is_video = True
     jobs[job_id] = job
     
+    # Re-initialize processor if depth model changed
+    global processor
+    if depth_model != processor.depth_model_name:
+        try:
+            processor = SPAG4D(
+                device="cuda",
+                depth_model=depth_model,
+                use_guided_filter=True, # Video doesn't have a UI toggle for this, assume true
+            )
+            print(f"Switched to depth model: {depth_model}")
+        except Exception as e:
+            # Clean up the pending job so it doesn't get stuck in the queue
+            del jobs[job_id]
+            print(f"Failed to switch depth model to {depth_model}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+            
     # Save input video
     suffix = Path(file.filename).suffix if file.filename else '.mp4'
     job.input_path = TEMP_DIR / f"{job_id}_input{suffix}"
@@ -315,7 +337,7 @@ async def convert_video(
         job, fps, stride, scale_factor, thickness, global_scale, depth_min, depth_max,
         sky_threshold,
         start_time, duration, temporal_alpha, stabilize_video, scale_blend, opacity_blend,
-        sharp_cubemap_size, color_blend
+        sharp_cubemap_size, color_blend, da3_projection=da3_projection
     ))
     
     return JSONResponse({
@@ -342,6 +364,7 @@ async def process_job(
     sky_threshold: float = 80.0,
     color_blend: float = 0.5,
     sky_dome: bool = True,
+    da3_projection: str = "equirectangular",
     guided_strength: float = 1.0
 ):
     """Process conversion job with GPU semaphore."""
@@ -359,14 +382,15 @@ async def process_job(
                 width, height = img.size
             
             effective_stride = stride
-            if width > 6000:
-                # 6K+ images: minimum stride 4 (DAP input is now capped at 4096px)
-                effective_stride = max(stride, 4)
-                print(f"⚠️ High-res image ({width}x{height}), using stride={effective_stride}")
-            elif width > 4096:
-                # 4K-6K images: minimum stride 2
-                effective_stride = max(stride, 2)
-                print(f"⚠️ Large image ({width}x{height}), using stride={effective_stride}")
+            # panda/dap process the full ERP in one pass — cap stride at 4 on 8K+ to
+            # avoid OOM.  DA3 projects into face tiles so it handles resolution itself.
+            if processor.depth_model_name in ("panda", "dap"):
+                if width > 6000:
+                    effective_stride = max(stride, 4)
+                    print(f"⚠️ High-res image ({width}x{height}), using stride={effective_stride}")
+                elif width > 4096:
+                    effective_stride = max(stride, 2)
+                    print(f"⚠️ Large image ({width}x{height}), using stride={effective_stride}")
             
             # Store adjusted stride in params for user feedback
             if effective_stride != stride:
@@ -392,6 +416,7 @@ async def process_job(
                 sharp_cubemap_size=sharp_cubemap_size,
                 sky_threshold=sky_threshold,
                 sky_dome=sky_dome,
+                da3_projection=da3_projection,
                 guided_strength=guided_strength
             )
             
@@ -413,6 +438,7 @@ async def process_job(
                 color_blend=color_blend,
                 sharp_cubemap_size=sharp_cubemap_size,
                 sky_threshold=sky_threshold,
+                da3_projection=da3_projection,
                 sky_dome=sky_dome
             )
             
@@ -458,6 +484,7 @@ async def process_video_job(
     opacity_blend: float = 1.0,
     sharp_cubemap_size: int = 1536,
     color_blend: float = 0.5,
+    da3_projection: str = "equirectangular",
 ):
     """Process video conversion with batched inference, temporal smoothing, and stabilization."""
     global processor
@@ -533,7 +560,7 @@ async def process_video_job(
                 # Run batched inference
                 with torch.inference_mode():
                     depth_batch, mask_batch = await run_in_threadpool(
-                        processor.dap.predict, batch
+                        processor.dap.predict, batch, da3_projection=da3_projection
                     )
                 
                 # Store results (move to CPU to save VRAM)

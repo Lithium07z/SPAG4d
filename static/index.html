@@ -117,8 +117,15 @@
                     <dd><strong>PanDA</strong> (CVPR 2025): Fine-tuned for 360° with sharper edges and better
                         small-object depth.
                         <strong>DA3</strong> (Depth Anything V3): Latest general-purpose metric depth model.
+                        Automatically switches to Face Projection modes for panoramas.
                         <strong>DAP</strong>: Original model, metric depth. Use PanDA for best results.
                     </dd>
+
+                    <dt>DA3 Proj (DA3 Only)</dt>
+                    <dd>Projection mode for DA3 depth extraction. <strong>Equirectangular</strong> computes depth
+                        exactly as seen. <strong>Cube Map</strong> and <strong>Icosahedron</strong> project the panorama
+                        into tiles to achieve significantly higher resolution and less distortion, stitching them back
+                        together naturally.</dd>
 
                     <dt>Edge Refine</dt>
                     <dd>RGB-guided depth edge sharpening. Uses the panorama's own color edges to sharpen blurry depth
@@ -129,8 +136,9 @@
                         Higher values (100+) preserve distant scenery.</dd>
 
                     <dt>Sky Dome</dt>
-                    <dd>When enabled, sky pixels become a distant backdrop sphere instead of being deleted. Fills the
-                        sky gap visible when looking around.</dd>
+                    <dd>When enabled, sky pixels generate a distant backdrop sphere instead of being deleted. This fills
+                        the
+                        black void in the sky visible when looking around in 3D.</dd>
                 </dl>
 
                 <h3>✨ Magic Fix (SHARP) Parameters</h3>
@@ -267,6 +275,17 @@
                             <option value="panda" selected>PanDA</option>
                             <option value="da3">DA3</option>
                             <option value="dap">DAP (Legacy)</option>
+                        </select>
+                    </div>
+
+                    <div class="param-group" id="da3-projection-group"
+                        style="display: none; border-left: 1px solid #444; padding-left: 10px; margin-left: 5px;"
+                        title="Projection mode for DA3 depth extraction. &#10;Equirectangular is default. Cubemap/Icosahedron stitch faces for higher resolution but may have seams.">
+                        <label for="da3-projection">DA3 Proj</label>
+                        <select id="da3-projection" style="width: 100px;">
+                            <option value="equirectangular" selected>Equirectangular</option>
+                            <option value="cubemap">Cube Map</option>
+                            <option value="icosahedral">Icosahedron</option>
                         </select>
                     </div>
 
